@@ -1,0 +1,29 @@
+# Default ignore for .NET + Daeanne repo
+
+## Build outputs
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.nupkg
+*.snupkg
+
+## SQLite runtime files (don't commit the live DB)
+*.db
+*.db-shm
+*.db-wal
+
+## Secrets
+appsettings.*.json
+!appsettings.json
+secrets.json
+local.settings.json
+
+## OS
+Thumbs.db
+.DS_Store
+
+## Logs
+logs/
+*.log
