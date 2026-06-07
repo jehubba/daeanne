@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="Daeanne.Bridge/Daeanne.Bridge.csproj" />
+  <Project Path="Daeanne.Dispatcher/Daeanne.Dispatcher.csproj" />
+  <Project Path="Daeanne.Shared/Daeanne.Shared.csproj" />
+</Solution>

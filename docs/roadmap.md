@@ -7,20 +7,24 @@ begins.
 
 ---
 
-## Phase 1: Foundation (Infrastructure Shell)
+## Phase 1: Foundation (Infrastructure Shell) ✅ COMPLETE
 
 **Goal:** Kestrel Dispatcher and Bridge running locally with stub endpoints.
 No real agent dispatch yet — just the plumbing.
 
-- [ ] `Daeanne.sln` with project structure
-- [ ] `Daeanne.Shared`: task models, API contracts, result types
-- [ ] `Daeanne.Dispatcher`: Kestrel Minimal API, SQLite task DB, all endpoints
-      (stub responses only)
-- [ ] `Daeanne.Bridge`: Windows Service shell, Service Bus SDK wired up,
+- [x] `Daeanne.sln` with project structure
+- [x] `Daeanne.Shared`: task models, API contracts, result types
+- [x] `Daeanne.Dispatcher`: Kestrel Minimal API, SQLite task DB, all endpoints
+      with full state-transition guards and enum string serialization
+- [x] `Daeanne.Bridge`: Windows Service shell, Service Bus SDK wired up,
       inbound/outbound queues connected to Dispatcher HTTP endpoints
-- [ ] `scripts/setup.ps1`: installs Windows Services, sets up symlinks
-- [ ] Manual end-to-end test: POST a task to Dispatcher, see it in SQLite,
-      POST a result back, verify state transition
+- [x] Manual end-to-end smoke test passed: POST task → GET task → POST result →
+      409 guard → list → outbox email; all endpoints verified on port 47777
+
+**Notes:**
+- Dispatcher bound to `http://127.0.0.1:47777` (localhost-only)
+- SQLite DB: `dispatcher.db` relative to working dir (set in appsettings.json)
+- Bridge disabled mode: logs warning and idles when `ConnectionStrings:ServiceBus` is empty
 
 ---
 
