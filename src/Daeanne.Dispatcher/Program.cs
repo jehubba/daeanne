@@ -1,7 +1,9 @@
+using System.Threading.Channels;
+using System.Text.Json.Serialization;
 using Daeanne.Dispatcher.Data;
 using Daeanne.Dispatcher.Endpoints;
+using Daeanne.Dispatcher.Services;
 using Microsoft.EntityFrameworkCore;
-using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,6 +21,12 @@ var connStr = builder.Configuration.GetConnectionString("DispatcherDb");
 if (string.IsNullOrWhiteSpace(connStr))
     connStr = $"Data Source={Path.Combine(AppContext.BaseDirectory, "dispatcher.db")}";
 builder.Services.AddDbContext<DispatcherDbContext>(options => options.UseSqlite(connStr));
+
+// Dispatch infrastructure
+builder.Services.Configure<DispatchConfig>(builder.Configuration.GetSection("Dispatch"));
+builder.Services.AddSingleton(Channel.CreateUnbounded<Guid>(new UnboundedChannelOptions { SingleReader = true }));
+builder.Services.AddSingleton<IAgentDispatcher, CopilotCliDispatcher>();
+builder.Services.AddHostedService<DispatchWorker>();
 
 var app = builder.Build();
 
@@ -44,3 +52,4 @@ app.MapTaskEndpoints();
 app.MapOutboxEndpoints();
 
 app.Run();
+

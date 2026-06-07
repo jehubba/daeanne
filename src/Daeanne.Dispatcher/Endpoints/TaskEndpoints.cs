@@ -1,3 +1,4 @@
+using System.Threading.Channels;
 using Daeanne.Dispatcher.Data;
 using Daeanne.Shared.Models;
 using Daeanne.Shared.Requests;
@@ -46,7 +47,8 @@ public static class TaskEndpoints
 
     private static async Task<IResult> CreateTask(
         CreateTaskRequest request,
-        DispatcherDbContext db)
+        DispatcherDbContext db,
+        Channel<Guid> queue)
     {
         if (string.IsNullOrWhiteSpace(request.Prompt))
             return Results.BadRequest("Prompt is required.");
@@ -61,6 +63,9 @@ public static class TaskEndpoints
 
         db.Tasks.Add(task);
         await db.SaveChangesAsync();
+
+        // Signal DispatchWorker — DB is source of truth, channel is wake-up only
+        await queue.Writer.WriteAsync(task.Id);
 
         return Results.Created($"/tasks/{task.Id}", task);
     }
@@ -92,3 +97,4 @@ public static class TaskEndpoints
         return Results.Ok(task);
     }
 }
+

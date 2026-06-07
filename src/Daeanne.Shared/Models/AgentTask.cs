@@ -20,7 +20,7 @@ public class AgentTask
     public string? Error { get; set; }
 
     public static readonly AgentTaskStatus[] TerminalStatuses =
-        [AgentTaskStatus.Succeeded, AgentTaskStatus.Partial, AgentTaskStatus.Failed];
+        [AgentTaskStatus.Succeeded, AgentTaskStatus.Partial, AgentTaskStatus.Failed, AgentTaskStatus.TimedOut];
 
     public bool IsTerminal() => TerminalStatuses.Contains(Status);
 }
