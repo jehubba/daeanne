@@ -1,0 +1,59 @@
+name: Deploy Azure Functions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/Daeanne.Functions/**'
+      - 'src/Daeanne.Shared/**'
+      - '.github/workflows/deploy-functions.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # required for OIDC token exchange
+  contents: read
+
+env:
+  DOTNET_VERSION: '8.0.x'
+  FUNCTIONS_PROJECT: 'src/Daeanne.Functions/Daeanne.Functions.csproj'
+  PUBLISH_DIR: '${{ github.workspace }}/publish'
+  AZURE_FUNCTION_APP_NAME: 'func-daeanne-prod'
+  AZURE_RESOURCE_GROUP: 'daeanne-comm-rg'
+
+jobs:
+  build-and-deploy:
+    name: Build & Deploy
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET ${{ env.DOTNET_VERSION }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore ${{ env.FUNCTIONS_PROJECT }}
+
+      - name: Build & publish
+        run: >
+          dotnet publish ${{ env.FUNCTIONS_PROJECT }}
+          --configuration Release
+          --output ${{ env.PUBLISH_DIR }}
+          --no-restore
+
+      - name: Login to Azure (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to Azure Functions
+        uses: Azure/functions-action@v1
+        with:
+          app-name: ${{ env.AZURE_FUNCTION_APP_NAME }}
+          package: ${{ env.PUBLISH_DIR }}
+          respect-funcignore: true
