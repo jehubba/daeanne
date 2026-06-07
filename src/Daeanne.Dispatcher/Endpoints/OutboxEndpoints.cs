@@ -9,8 +9,10 @@ public static class OutboxEndpoints
 {
     public static void MapOutboxEndpoints(this WebApplication app)
     {
-        app.MapGet("/outbox", GetOutbox);
+        app.MapGet("/outbox/email", GetOutbox);
+        app.MapGet("/outbox/email/{id:guid}", GetEmail);
         app.MapPost("/outbox/email", QueueEmail);
+        app.MapPatch("/outbox/email/{id:guid}/status", UpdateEmailStatus);
     }
 
     private static async Task<IResult> GetOutbox(
@@ -36,6 +38,12 @@ public static class OutboxEndpoints
         return Results.Ok(emails);
     }
 
+    private static async Task<IResult> GetEmail(Guid id, DispatcherDbContext db)
+    {
+        var email = await db.OutboxEmails.FindAsync(id);
+        return email is null ? Results.NotFound() : Results.Ok(email);
+    }
+
     private static async Task<IResult> QueueEmail(
         OutboxEmailRequest request,
         DispatcherDbContext db)
@@ -56,6 +64,32 @@ public static class OutboxEndpoints
         db.OutboxEmails.Add(email);
         await db.SaveChangesAsync();
 
-        return Results.Created($"/outbox/{email.Id}", new { email.Id, email.Status });
+        return Results.Created($"/outbox/email/{email.Id}", email);
+    }
+
+    private static async Task<IResult> UpdateEmailStatus(
+        Guid id,
+        UpdateOutboxStatusRequest request,
+        DispatcherDbContext db)
+    {
+        var email = await db.OutboxEmails.FindAsync(id);
+        if (email is null) return Results.NotFound();
+
+        if (!Enum.TryParse<OutboxEmailStatus>(request.Status, ignoreCase: true, out var newStatus))
+            return Results.BadRequest($"Unknown status '{request.Status}'.");
+
+        // Prevent rolling back from terminal states
+        if (email.Status is OutboxEmailStatus.Sent or OutboxEmailStatus.Failed)
+            return Results.Conflict($"Email {id} is already in terminal state '{email.Status}'.");
+
+        email.Status = newStatus;
+        if (newStatus == OutboxEmailStatus.Sent)
+            email.SentAt = DateTime.UtcNow;
+        if (request.Error is not null)
+            email.Error = request.Error;
+
+        await db.SaveChangesAsync();
+        return Results.Ok(email);
     }
 }
+

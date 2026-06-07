@@ -41,7 +41,7 @@ public class DispatchWorker(
         {
             AgentTask? task;
 
-            // Mark Running
+            // Mark Running (or skip if no agent handles this type)
             using (var scope = scopeFactory.CreateScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<DispatcherDbContext>();
@@ -50,6 +50,14 @@ public class DispatchWorker(
                 if (task is null || task.IsTerminal())
                 {
                     logger.LogDebug("Task {TaskId} skipped (null or already terminal).", taskId);
+                    return;
+                }
+
+                // Types with no agent configured stay Pending for manual pickup (e.g. by Daeanne session)
+                if (_config.GetAgentName(task.Type) is null)
+                {
+                    logger.LogDebug("Task {TaskId} ({Type}) has no auto-dispatch agent — leaving Pending.",
+                        taskId, task.Type);
                     return;
                 }
 

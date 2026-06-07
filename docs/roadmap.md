@@ -71,19 +71,24 @@ dispatch via the Dispatcher.
 
 ---
 
-## Phase 4: Email Pipeline
+## Phase 4: Email Pipeline ✅ COMPLETE (pending ACS provisioning)
 
 **Goal:** Emails can reach Daeanne and Daeanne can send emails.
 
-- [ ] Azure Communication Services setup
-- [ ] Service Bus queues (inbound + outbound)
-- [ ] Azure Function: email-ingest (ACS → Service Bus)
-- [ ] Azure Function: email-send (Service Bus → ACS)
-- [ ] Bridge: inbound queue → Dispatcher (`POST /tasks`)
-- [ ] Bridge: Dispatcher outbound → outbound queue
-- [ ] Dispatcher: `POST /outbox/email` endpoint complete
-- [ ] End-to-end test: send email to configured address, watch it reach
-      Daeanne, send a reply, verify delivery
+- [x] Azure Service Bus namespace: `sb-daeanne-comm`, queues: `daeanne-inbox` / `daeanne-outbox`
+- [x] `Daeanne.Shared`: `BridgeEmailMessage` contract, `OutboxEmailStatus.Processing`, `UpdateOutboxStatusRequest`
+- [x] `Daeanne.Dispatcher`: `POST /outbox/email`, `GET /outbox/email/{id}`, `PATCH /outbox/email/{id}/status`
+- [x] `DispatchWorker`: Email/Scheduling tasks left Pending (no agent in map); Bridge claims them
+- [x] `Daeanne.Bridge`: full bidirectional worker — inbound ServiceBusProcessor → POST /tasks; outbound 10s poll → PATCH Processing → SB publish → PATCH Sent/Failed
+- [x] `Daeanne.Functions`: `EmailIngest` (ACS EventGrid webhook → daeanne-inbox) + `EmailSend` (daeanne-outbox → ACS Email SDK)
+- [x] Full solution builds clean (0 errors, 0 warnings)
+- [ ] **Remaining:** ACS provisioning, domain setup, Function App deploy, Bridge connection string config, end-to-end smoke test
+
+**Notes:**
+- Bridge runs as Windows Service (`UseWindowsService()`)
+- Stale `Processing` emails (>2 min) auto-retried on next Bridge poll cycle
+- `local.settings.json` has placeholder keys: `ServiceBusConnection`, `AcsEmailConnectionString`, `AcsEmailSenderAddress`
+- ACS event type parsed: `Microsoft.Communication.EmailReceived`
 
 ---
 
