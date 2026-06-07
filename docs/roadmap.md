@@ -28,18 +28,22 @@ No real agent dispatch yet — just the plumbing.
 
 ---
 
-## Phase 2: Agent Dispatch
+## Phase 2: Agent Dispatch ✅ COMPLETE
 
 **Goal:** Dispatcher can cold-start a CLI agent with a prompt and capture
 its result.
 
-- [ ] `System.Diagnostics.Process` launcher in Dispatcher
-- [ ] Context assembly: Dispatcher builds the full prompt (task_id,
-      output_path, background context) from the task DB
-- [ ] Output capture: parse `---RESEARCH_COMPLETE---` block from agent stdout
-- [ ] Wire up Research Agent as first real dispatched agent
-- [ ] End-to-end test: POST a research task, watch agent cold-start, verify
-      result lands in Dispatcher DB and output file is written
+- [x] `IAgentDispatcher` / `CopilotCliDispatcher`: invokes `copilot --agent <name> -p "<prompt>" --silent --no-ask-user --allow-all-tools` using `ArgumentList` (safe prompt injection)
+- [x] `DispatchConfig`: maps AgentTaskType → agent name, configures timeout/concurrency/workDir
+- [x] `DispatchWorker`: BackgroundService with `Channel<Guid>` wake-up, DB-backed state, startup rehydration, `SemaphoreSlim` concurrency cap
+- [x] Research Agent orchestrated mode: prompt includes `task_id`/`output_path`; agent writes `<task_id>-research.md` + `session.md` to per-task workdir
+- [x] `AgentTaskStatus.TimedOut` added to terminal statuses
+- [x] End-to-end test passed: POST research task → Pending → Running → Succeeded in ~70s; report and session.md written to `~/.daeanne/tasks/<id>/`
+
+**Notes:**
+- Per-task work dirs: `~/.daeanne/tasks/<task_id>/` (configurable via `Dispatch:WorkDir`)
+- CLI invocation: `copilot --agent <name> -p <prompt> --silent --no-ask-user --allow-all-tools --allow-all-paths --allow-all-urls --share <session.md> -C <workdir>`
+- Task timeout: 10 minutes (configurable `Dispatch:TaskTimeoutMinutes`)
 
 ---
 
