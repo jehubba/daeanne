@@ -47,18 +47,27 @@ its result.
 
 ---
 
-## Phase 3: Daeanne (CoS Agent)
+## Phase 3: Daeanne (CoS Agent) ✅ COMPLETE
 
 **Goal:** Daeanne can receive a task, make an orchestration decision, and
 dispatch via the Dispatcher.
 
-- [ ] `agents/daeanne.agent.md` — full agent profile
-- [ ] Daeanne's persistent session setup and keep-alive (basic)
-- [ ] Daeanne can POST to Dispatcher endpoints
-- [ ] Daeanne can interpret `---RESEARCH_COMPLETE---` results
-- [ ] Human-in-the-loop: Daeanne knows when to escalate vs. proceed
-- [ ] End-to-end test: send Daeanne a request, she decomposes it, dispatches
-      research agent, receives result, responds to human
+- [x] `agents/daeanne.agent.md` — full agent profile: identity (Daeanne =
+      daemon + Diane from Twin Peaks), startup routine, orchestration pipeline
+      (classify → decompose → dispatch → poll → read results → synthesize),
+      working memory format, escalation rules with structured format, tool
+      use policy, outbound email protocol
+- [x] Tools: `read`, `web`, `shell` (for Dispatcher HTTP calls via PowerShell)
+- [x] Dispatcher contract: exact PowerShell snippets for POST /tasks, GET /tasks/{id},
+      reading ResultJson and report files, POST /outbox/email
+- [x] Symlink: `~/.copilot/agents/daeanne.agent.md` → repo file (live in CLI + VS Code)
+- [x] Available alongside research-agent in `~/.copilot/agents/`
+
+**Notes:**
+- Run `copilot --agent daeanne` to start a Daeanne session
+- Dispatcher must be running at `http://127.0.0.1:47777`
+- Daeanne uses PowerShell `Invoke-RestMethod` (via shell tool) for all Dispatcher calls
+- Per-task work dirs: `~/.daeanne/tasks/<task_id>/`
 
 ---
 
