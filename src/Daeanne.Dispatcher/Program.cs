@@ -76,6 +76,10 @@ using (var scope = app.Services.CreateScope())
     db.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS IX_ScheduledJobs_IsActive  ON ScheduledJobs (IsActive)");
 }
 
+// Seed built-in ScheduledJob records (daily summary, weekly 1:1) on first start.
+var seedLogger = app.Services.GetRequiredService<ILogger<Program>>();
+await SchedulerWorker.SeedBuiltInJobsAsync(app.Services, app.Configuration, seedLogger);
+
 app.Services.GetRequiredService<PreferenceMemoryService>().EnsurePreferencesFileExists();
 
 app.MapGet("/health", () => Results.Ok(new
