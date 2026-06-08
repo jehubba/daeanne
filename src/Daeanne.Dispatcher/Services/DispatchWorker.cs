@@ -133,21 +133,40 @@ public class DispatchWorker(
         foreach (var id in pendingIds)
             await queue.Writer.WriteAsync(id, ct);
 
-        // Mark interrupted Running tasks as Failed and move their dirs
+        // Mark interrupted Running tasks as Failed (or resume them if a session exists)
         var interrupted = await db.Tasks
             .Where(t => t.Status == AgentTaskStatus.Running)
             .ToListAsync(ct);
 
         foreach (var t in interrupted)
         {
-            t.Status = AgentTaskStatus.Failed;
-            t.Error  = "Dispatcher restarted while task was Running.";
-            t.CompletedAt = DateTime.UtcNow;
-            t.UpdatedAt   = DateTime.UtcNow;
+            var workDir = TaskDirManager.FindTaskDir(_config.ResolvedWorkDir, t.Id)
+                          ?? TaskDirManager.ActivePath(_config.ResolvedWorkDir, t.Id);
 
-            var newWorkDir = TaskDirManager.MoveToFinalLocation(
-                _config.ResolvedWorkDir, t.Id, AgentTaskStatus.Failed);
-            t.ResultJson = TaskDirManager.UpdateResultJsonWorkDir(t.ResultJson, newWorkDir);
+            // Try to resume before giving up
+            var resumeResult = await dispatcher.TryResumeAsync(t, workDir, ct);
+            if (resumeResult is not null)
+            {
+                var finalStatus = resumeResult.Succeeded ? AgentTaskStatus.Succeeded : AgentTaskStatus.Failed;
+                var newWorkDir  = TaskDirManager.MoveToFinalLocation(_config.ResolvedWorkDir, t.Id, finalStatus);
+                t.Status     = finalStatus;
+                t.ResultJson = TaskDirManager.UpdateResultJsonWorkDir(resumeResult.ResultJson, newWorkDir);
+                t.Error      = resumeResult.Error;
+                t.CompletedAt = DateTime.UtcNow;
+                t.UpdatedAt   = DateTime.UtcNow;
+                logger.LogInformation("Resumed interrupted task {Id} → {Status}", t.Id, finalStatus);
+            }
+            else
+            {
+                // No session.md — can't resume, mark Failed and move dir
+                var newWorkDir = TaskDirManager.MoveToFinalLocation(_config.ResolvedWorkDir, t.Id, AgentTaskStatus.Failed);
+                t.Status      = AgentTaskStatus.Failed;
+                t.Error       = "Dispatcher restarted while task was Running; no session found for resume.";
+                t.CompletedAt = DateTime.UtcNow;
+                t.UpdatedAt   = DateTime.UtcNow;
+                t.ResultJson  = TaskDirManager.UpdateResultJsonWorkDir(t.ResultJson, newWorkDir);
+                logger.LogWarning("Task {Id} had no session.md — marked Failed (no resume possible)", t.Id);
+            }
         }
 
         if (interrupted.Count > 0)

@@ -8,11 +8,63 @@ namespace Daeanne.Dispatcher.Services;
 /// <summary>
 /// Dispatches tasks by cold-starting the GitHub Copilot CLI in non-interactive mode.
 /// Invocation: copilot --agent &lt;name&gt; -p "&lt;prompt&gt;" --silent --no-ask-user --allow-all-tools -C &lt;workdir&gt;
+/// Resume invocation: copilot --resume &lt;session-id&gt; -p "&lt;orienting-prompt&gt;" --silent ...
 /// </summary>
 public class CopilotCliDispatcher(IOptions<DispatchConfig> config, ILogger<CopilotCliDispatcher> logger)
     : IAgentDispatcher
 {
     private readonly DispatchConfig _config = config.Value;
+
+    public async Task<DispatchResult?> TryResumeAsync(AgentTask task, string workDir, CancellationToken ct = default)
+    {
+        var sessionId = ExtractSessionId(workDir);
+        if (sessionId is null)
+        {
+            logger.LogDebug("TryResumeAsync: no session.md or session ID in {WorkDir}", workDir);
+            return null;
+        }
+
+        var planDoc = Path.Combine(workDir, "daeanne-plan.md");
+        var orientingPrompt = $"""
+            You are resuming task {task.Id}. Your previous session was interrupted.
+
+            Your plan doc is at: {planDoc}
+
+            Read your plan doc first. Then check the current status of any sub-tasks
+            listed in your Actions section using:
+              Invoke-RestMethod "http://127.0.0.1:47777/tasks/<sub-task-id>"
+
+            Then continue from where you left off — skip anything already checked off,
+            complete anything remaining, and close the task as normal.
+            """;
+
+        logger.LogInformation("Resuming task {TaskId} with session {SessionId}", task.Id, sessionId);
+
+        var psi = new ProcessStartInfo
+        {
+            FileName               = "copilot",
+            RedirectStandardOutput = !_config.ShowAgentWindow,
+            RedirectStandardError  = !_config.ShowAgentWindow,
+            UseShellExecute        = false,
+            CreateNoWindow         = true,
+            WorkingDirectory       = workDir
+        };
+
+        psi.ArgumentList.Add("--resume"); psi.ArgumentList.Add(sessionId);
+        psi.ArgumentList.Add("-p");       psi.ArgumentList.Add(orientingPrompt);
+        psi.ArgumentList.Add("--silent");
+        psi.ArgumentList.Add("--no-ask-user");
+        psi.ArgumentList.Add("--allow-all-tools");
+        psi.ArgumentList.Add("--allow-all-paths");
+        psi.ArgumentList.Add("--allow-all-urls");
+        psi.ArgumentList.Add("--share");
+        psi.ArgumentList.Add(Path.Combine(workDir, "session.md"));
+
+        if (_config.ShowAgentWindow)
+            psi = BuildWindowedResumeProcess(psi, sessionId, orientingPrompt, workDir);
+
+        return await RunProcessAsync(task.Id, psi, workDir, ct);
+    }
 
     public async Task<DispatchResult> DispatchAsync(AgentTask task, CancellationToken ct = default)
     {
@@ -30,15 +82,14 @@ public class CopilotCliDispatcher(IOptions<DispatchConfig> config, ILogger<Copil
 
         var psi = new ProcessStartInfo
         {
-            FileName = "copilot",
+            FileName               = "copilot",
             RedirectStandardOutput = !_config.ShowAgentWindow,
             RedirectStandardError  = !_config.ShowAgentWindow,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            WorkingDirectory = workDir
+            UseShellExecute        = false,
+            CreateNoWindow         = true,
+            WorkingDirectory       = workDir
         };
 
-        // Use ArgumentList to avoid shell-escaping issues with prompt content
         psi.ArgumentList.Add("--agent"); psi.ArgumentList.Add(agentName);
         psi.ArgumentList.Add("-p");      psi.ArgumentList.Add(prompt);
         psi.ArgumentList.Add("--silent");
@@ -50,10 +101,16 @@ public class CopilotCliDispatcher(IOptions<DispatchConfig> config, ILogger<Copil
         psi.ArgumentList.Add(Path.Combine(workDir, "session.md"));
 
         if (_config.ShowAgentWindow)
-        {
             psi = BuildWindowedProcess(psi, agentName, prompt, workDir);
-        }
 
+        return await RunProcessAsync(task.Id, psi, workDir, ct);
+    }
+
+    // ─── Shared process runner ────────────────────────────────────────────────
+
+    private async Task<DispatchResult> RunProcessAsync(
+        Guid taskId, ProcessStartInfo psi, string workDir, CancellationToken ct)
+    {
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts.CancelAfter(TimeSpan.FromMinutes(_config.TaskTimeoutMinutes));
 
@@ -66,7 +123,6 @@ public class CopilotCliDispatcher(IOptions<DispatchConfig> config, ILogger<Copil
 
             if (_config.ShowAgentWindow)
             {
-                // Windowed: output is tee'd to agent-output.txt by the script; read it after exit
                 await process.WaitForExitAsync(timeoutCts.Token);
                 var outputFile = Path.Combine(workDir, "agent-output.txt");
                 stdout = File.Exists(outputFile) ? await File.ReadAllTextAsync(outputFile, ct) : string.Empty;
@@ -81,17 +137,16 @@ public class CopilotCliDispatcher(IOptions<DispatchConfig> config, ILogger<Copil
             if (process.ExitCode != 0)
             {
                 logger.LogWarning("Task {TaskId} agent exited with code {Code}. stderr: {Err}",
-                    task.Id, process.ExitCode, stderr);
+                    taskId, process.ExitCode, stderr);
                 return new DispatchResult(false, null,
                     $"Agent exited with code {process.ExitCode}. stderr: {stderr.Trim()}");
             }
 
-            logger.LogInformation("Task {TaskId} completed. Output length: {Len}", task.Id, stdout.Length);
+            logger.LogInformation("Task {TaskId} completed. Output length: {Len}", taskId, stdout.Length);
 
             var resultJson = JsonSerializer.Serialize(new
             {
-                response = stdout.Trim(),
-                agent = agentName,
+                response   = stdout.Trim(),
                 workDir,
                 sessionLog = Path.Combine(workDir, "session.md")
             });
@@ -104,14 +159,29 @@ public class CopilotCliDispatcher(IOptions<DispatchConfig> config, ILogger<Copil
         }
         catch (OperationCanceledException)
         {
-            logger.LogWarning("Task {TaskId} timed out after {Min} minutes.", task.Id, _config.TaskTimeoutMinutes);
+            logger.LogWarning("Task {TaskId} timed out after {Min} minutes.", taskId, _config.TaskTimeoutMinutes);
             return new DispatchResult(false, null, $"Task timed out after {_config.TaskTimeoutMinutes} minutes.");
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Unexpected error dispatching task {TaskId}", task.Id);
+            logger.LogError(ex, "Unexpected error dispatching task {TaskId}", taskId);
             return new DispatchResult(false, null, ex.Message);
         }
+    }
+
+    // ─── Session ID extraction ────────────────────────────────────────────────
+
+    private static string? ExtractSessionId(string workDir)
+    {
+        var sessionPath = Path.Combine(workDir, "session.md");
+        if (!File.Exists(sessionPath)) return null;
+
+        // session.md contains: **Session ID:** `<guid>`
+        var content = File.ReadAllText(sessionPath);
+        var match   = System.Text.RegularExpressions.Regex.Match(
+            content, @"\*\*Session ID:\*\*\s+`([^`]+)`");
+
+        return match.Success ? match.Groups[1].Value : null;
     }
 
     private static string BuildPrompt(AgentTask task, string workDir)
@@ -163,7 +233,37 @@ public class CopilotCliDispatcher(IOptions<DispatchConfig> config, ILogger<Copil
         return new ProcessStartInfo
         {
             FileName  = "powershell.exe",
-            Arguments = $"-File \"{scriptFile}\"",   // no -NoExit: process exits after Read-Host
+            Arguments = $"-File \"{scriptFile}\"",
+            UseShellExecute = true,
+            CreateNoWindow  = false,
+            WorkingDirectory = workDir
+        };
+    }
+
+    private static ProcessStartInfo BuildWindowedResumeProcess(
+        ProcessStartInfo _, string sessionId, string prompt, string workDir)
+    {
+        var promptFile = Path.Combine(workDir, "resume-prompt.txt");
+        var outputFile = Path.Combine(workDir, "agent-output.txt");
+        var sessionMd  = Path.Combine(workDir, "session.md");
+        File.WriteAllText(promptFile, prompt);
+
+        var script = $"""
+            Set-Location '{workDir.Replace("'", "''")}'
+            $prompt = Get-Content '{promptFile.Replace("'", "''")}' -Raw
+            copilot --resume '{sessionId}' -p $prompt --silent --no-ask-user --allow-all-tools --allow-all-paths --allow-all-urls --share '{sessionMd.Replace("'", "''")}'  2>&1 | Tee-Object -FilePath '{outputFile.Replace("'", "''")}'
+            Write-Host ""
+            Write-Host "--- Resumed session finished. Press Enter to close. ---"
+            Read-Host
+            """;
+
+        var scriptFile = Path.Combine(workDir, "resume.ps1");
+        File.WriteAllText(scriptFile, script);
+
+        return new ProcessStartInfo
+        {
+            FileName  = "powershell.exe",
+            Arguments = $"-File \"{scriptFile}\"",
             UseShellExecute = true,
             CreateNoWindow  = false,
             WorkingDirectory = workDir
