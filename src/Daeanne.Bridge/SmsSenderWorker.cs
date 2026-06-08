@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Daeanne.Shared.Models;
+using Daeanne.Shared.Requests;
 
 namespace Daeanne.Bridge;
 
@@ -12,6 +13,13 @@ namespace Daeanne.Bridge;
 ///
 /// ACS SMS REST: POST https://{endpoint}/sms?api-version=2021-03-07
 /// Body: { "from": "+1...", "smsRecipients": [{ "to": "+1..." }], "message": "..." }
+///
+/// Inbound SMS (signal-cli):
+/// When signal-cli is configured, a separate SmsReceiverWorker (or this class
+/// extended) calls POST /sms/messages on the Dispatcher with LogInboundSmsRequest.
+/// The Dispatcher logs the message and creates an InboundSms AgentTask with
+/// conversation history in the context — Daeanne reads that history to handle
+/// follow-ups, quoted replies, and new commands.
 /// </summary>
 public class SmsSenderWorker(
     ILogger<SmsSenderWorker> logger,
@@ -22,8 +30,8 @@ public class SmsSenderWorker(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var connStr    = config["Sms:AcsConnectionString"];
-        var fromNumber = config["Sms:FromNumber"];
+        var connStr       = config["Sms:AcsConnectionString"];
+        var fromNumber    = config["Sms:FromNumber"];
         var dispatcherUrl = config["Bridge:DispatcherUrl"] ?? "http://127.0.0.1:47777";
 
         if (string.IsNullOrWhiteSpace(connStr) || string.IsNullOrWhiteSpace(fromNumber))
@@ -34,10 +42,8 @@ public class SmsSenderWorker(
             return;
         }
 
-        // Parse ACS endpoint + access key from connection string
-        // Format: endpoint=https://...;accesskey=...
-        var endpoint   = ParseConnStrValue(connStr, "endpoint");
-        var accessKey  = ParseConnStrValue(connStr, "accesskey");
+        var endpoint  = ParseConnStrValue(connStr, "endpoint");
+        var accessKey = ParseConnStrValue(connStr, "accesskey");
 
         if (string.IsNullOrWhiteSpace(endpoint) || string.IsNullOrWhiteSpace(accessKey))
         {
@@ -46,7 +52,7 @@ public class SmsSenderWorker(
         }
 
         var pollSeconds = config.GetValue<int>("Sms:PollIntervalSeconds", 10);
-        logger.LogInformation("SmsSenderWorker: started, polling every {Poll}s → {From}", pollSeconds, fromNumber);
+        logger.LogInformation("SmsSenderWorker: started, polling every {Poll}s -> {From}", pollSeconds, fromNumber);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -57,13 +63,44 @@ public class SmsSenderWorker(
         }
     }
 
+    /// <summary>
+    /// Called by a future SmsReceiverWorker (signal-cli or equivalent) when an inbound SMS arrives.
+    /// Posts to the Dispatcher, which logs the message and creates an InboundSms task.
+    /// The task prompt includes conversation history — Daeanne uses it to determine if this is
+    /// a new command, a follow-up, or a reply quoting a specific prior message.
+    /// </summary>
+    public static async Task LogInboundAsync(
+        HttpClient client, string dispatcherUrl,
+        string from, string body, string? quoteTimestamp,
+        ILogger logger, CancellationToken ct)
+    {
+        var payload = JsonSerializer.Serialize(new LogInboundSmsRequest
+        {
+            From           = from,
+            Body           = body,
+            QuoteTimestamp = quoteTimestamp
+        });
+
+        try
+        {
+            var resp = await client.PostAsync(
+                $"{dispatcherUrl}/sms/messages",
+                new StringContent(payload, System.Text.Encoding.UTF8, "application/json"), ct);
+            if (!resp.IsSuccessStatusCode)
+                logger.LogWarning("SmsSenderWorker.LogInbound: Dispatcher returned {Status}", resp.StatusCode);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "SmsSenderWorker.LogInbound: failed to post inbound SMS to Dispatcher");
+        }
+    }
+
     private async Task SendPendingAsync(
         string endpoint, string accessKey, string fromNumber,
         string dispatcherUrl, CancellationToken ct)
     {
         using var client = http.CreateClient();
 
-        // Fetch pending SMS from Dispatcher outbox
         List<OutboxSms>? pending;
         try
         {
@@ -80,7 +117,6 @@ public class SmsSenderWorker(
 
         foreach (var sms in pending)
         {
-            // Mark Sending
             await PatchStatusAsync(client, dispatcherUrl, sms.Id, "Sending", null, ct);
 
             try
@@ -101,8 +137,7 @@ public class SmsSenderWorker(
         HttpClient client, string endpoint, string accessKey,
         string from, string to, string body, CancellationToken ct)
     {
-        // ACS SMS REST API
-        // https://learn.microsoft.com/en-us/rest/api/communication/sms/send
+        // ACS SMS REST API: https://learn.microsoft.com/en-us/rest/api/communication/sms/send
         var url = $"{endpoint.TrimEnd('/')}/sms?api-version=2021-03-07";
         var payload = JsonSerializer.Serialize(new
         {
@@ -114,9 +149,8 @@ public class SmsSenderWorker(
         using var req = new HttpRequestMessage(HttpMethod.Post, url);
         req.Content = new StringContent(payload, System.Text.Encoding.UTF8, "application/json");
 
-        // ACS HMAC-SHA256 auth — placeholder; real implementation requires signing the request.
+        // ACS HMAC-SHA256 auth placeholder — real implementation requires request signing.
         // See: https://learn.microsoft.com/en-us/azure/communication-services/concepts/authentication
-        // For now, add the access key as a header stub so this compiles and the path is clear.
         req.Headers.Add("Authorization", $"Bearer {accessKey}");
 
         var resp = await client.SendAsync(req, ct);
@@ -136,7 +170,6 @@ public class SmsSenderWorker(
         }
         catch (Exception ex)
         {
-            // Log but don't rethrow — a status update failure shouldn't abort the batch
             Console.Error.WriteLine($"SmsSenderWorker: status patch failed for {id}: {ex.Message}");
         }
     }

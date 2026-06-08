@@ -471,11 +471,15 @@ Bad SMS reply: `Dear Jeffrey, I've completed the research you requested regardin
 ### Sending an SMS reply
 
 The sender's phone number is in your task context as `senderPhone`.
+When your task has a `taskId`, pass it in the body so the Dispatcher auto-logs the outbound
+message and appends a short reference token (e.g., `[a3f2]`) to the end of your text.
 
 ```powershell
-$sms = @{
-    to   = "<senderPhone from context>"
-    body = "Research done. Full report emailed."
+$ctx  = ($env:TASK_CONTEXT | ConvertFrom-Json)
+$sms  = @{
+    to     = $ctx.senderPhone
+    body   = "Research done. Full report emailed."
+    taskId = $env:TASK_ID   # Dispatcher appends [token] automatically
 } | ConvertTo-Json
 $result = Invoke-RestMethod "http://127.0.0.1:47777/outbox/sms" `
     -Method Post -Body $sms -ContentType "application/json"
@@ -489,6 +493,40 @@ do {
     $s = Invoke-RestMethod "http://127.0.0.1:47777/outbox/sms/$($result.id)"
 } until ($s.status -in @("Sent","Failed"))
 ```
+
+### SMS threading and conversation history
+
+Your task context includes a `conversationHistory` array — the last 10 SMS messages with this
+phone number, both inbound and outbound, in chronological order. Read it to determine intent.
+
+Each entry has:
+- `direction`: `"inbound"` (from Jeffrey) or `"outbound"` (your prior reply)
+- `body`: message text
+- `timestamp`: ISO 8601
+- `taskId`: task that produced/consumed this message (nullable)
+- `referenceToken`: 4-char token like `"a3f2"` on your outbound messages
+
+#### Resolving a quoted reply (`quoteTimestamp`)
+
+When Jeffrey quotes one of your messages in Signal, the task context contains `quoteTimestamp`
+and `quotedTaskId`. Use `quotedTaskId` to identify which task is being referenced — resume it
+or answer the follow-up in that context.
+
+If `quotedTaskId` is null but `quoteTimestamp` is set, the quoted message wasn't logged (edge
+case). Fall back to intent detection from the body + history.
+
+#### Intent classification
+
+Before acting on an inbound SMS, classify the message as one of:
+
+| Intent | Signal | Action |
+|--------|--------|--------|
+| **New command** | No relevant history; unambiguous new request | Treat as fresh task |
+| **Follow-up** | References a recent task/result; asks a follow-up question | Resume or extend prior task context |
+| **Quoted reply** | `quotedTaskId` present | Use that task for context |
+| **Ambiguous** | Unclear; could apply to multiple recent tasks | Reply asking for clarification (mention the reference tokens) |
+
+**Example disambiguation SMS:** `Which one? [a3f2] (research) or [b7c1] (calendar)?`
 
 ### Decision flow for InboundSms tasks
 

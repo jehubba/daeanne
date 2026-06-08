@@ -89,6 +89,24 @@ using (var scope = app.Services.CreateScope())
         """);
     db.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS IX_ScheduledJobs_NextRunAt ON ScheduledJobs (NextRunAt)");
     db.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS IX_ScheduledJobs_IsActive  ON ScheduledJobs (IsActive)");
+
+    // SmsMessages: unified inbound/outbound conversation log
+    db.Database.ExecuteSqlRaw("""
+        CREATE TABLE IF NOT EXISTS SmsMessages (
+            Id             TEXT    NOT NULL PRIMARY KEY,
+            Direction      TEXT    NOT NULL,
+            Phone          TEXT    NOT NULL,
+            Body           TEXT    NOT NULL,
+            Timestamp      TEXT    NOT NULL,
+            TaskId         TEXT,
+            QuoteTimestamp TEXT,
+            ReferenceToken TEXT,
+            OutboxSmsId    TEXT
+        )
+        """);
+    db.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS IX_SmsMessages_Phone     ON SmsMessages (Phone)");
+    db.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS IX_SmsMessages_Timestamp ON SmsMessages (Timestamp)");
+    db.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS IX_SmsMessages_TaskId    ON SmsMessages (TaskId)");
 }
 
 // Seed built-in ScheduledJob records (daily summary, weekly 1:1) on first start.
@@ -107,6 +125,7 @@ app.MapGet("/health", () => Results.Ok(new
 app.MapTaskEndpoints();
 app.MapOutboxEndpoints();
 app.MapOutboxSmsEndpoints();
+app.MapSmsConversationEndpoints();
 app.MapSchedulerEndpoints();
 app.MapSchedulerCronEndpoints();
 

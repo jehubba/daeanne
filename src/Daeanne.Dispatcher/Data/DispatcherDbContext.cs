@@ -8,6 +8,7 @@ public class DispatcherDbContext(DbContextOptions<DispatcherDbContext> options) 
     public DbSet<AgentTask>    Tasks         { get; set; }
     public DbSet<OutboxEmail>  OutboxEmails  { get; set; }
     public DbSet<OutboxSms>    OutboxSmsList { get; set; }
+    public DbSet<SmsMessage>   SmsMessages   { get; set; }
     public DbSet<ScheduledJob> ScheduledJobs { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -34,6 +35,15 @@ public class DispatcherDbContext(DbContextOptions<DispatcherDbContext> options) 
             e.HasKey(t => t.Id);
             e.Property(t => t.Status).HasConversion<string>();
             e.HasIndex(t => t.Status);
+        });
+
+        modelBuilder.Entity<SmsMessage>(e =>
+        {
+            e.HasKey(m => m.Id);
+            e.Property(m => m.Direction).HasConversion<string>();
+            e.HasIndex(m => m.Phone);
+            e.HasIndex(m => m.Timestamp);
+            e.HasIndex(m => m.TaskId);
         });
 
         modelBuilder.Entity<ScheduledJob>(e =>
