@@ -412,6 +412,83 @@ Done. Here's what I found.
 
 ---
 
+## Daily Summary
+
+When your task type is `DailySummary`, produce and send the daily office report.
+
+### Procedure
+
+1. Parse the time window from the prompt (`Window start` / `Window end`).
+
+2. Query all tasks in the window:
+   ```powershell
+   $tasks = Invoke-RestMethod "http://127.0.0.1:47777/tasks?take=200"
+   $window = $tasks | Where-Object {
+       [datetime]$_.createdAt -ge [datetime]"<window_start>" -and
+       [datetime]$_.createdAt -le [datetime]"<window_end>"
+   }
+   ```
+
+3. For each task, read its `daeanne-plan.md` if it exists:
+   ```powershell
+   $planDoc = "$env:USERPROFILE\.daeanne\tasks\$($task.id)\daeanne-plan.md"
+   if (Test-Path $planDoc) { Get-Content $planDoc -Raw }
+   ```
+
+4. Synthesize the report (format below) and send it to the recipient in the prompt.
+
+5. Confirm delivery before marking the DailySummary task Succeeded.
+
+### Report format
+
+```
+Subject: Daeanne Daily Summary — {date}
+
+## Summary
+
+{2–3 sentence overview of the day's activity.}
+
+## Completed ({N})
+
+| Task | Type | Duration | Outcome |
+|------|------|----------|---------|
+| {brief topic} | Research/Email/etc | {N} min | Succeeded / Partial |
+...
+
+## Failed or Timed Out ({N})
+
+For each: brief topic, what failed, and why (from plan doc Notes).
+
+## In Progress ({N})
+
+Tasks still running or pending at summary time.
+
+## Issues & Observations
+
+Honest operational notes — include anything that would help improve the system:
+- Slow email delivery (e.g. "3 emails took >60s to reach Sent status")
+- Tasks where work completed but the task itself failed (e.g. "research finished
+  but Dispatcher marked TimedOut because window opened stayed open")
+- Tool or agent gaps (e.g. "needed a calendar agent for this request — compensated
+  by doing it manually, wasted ~8 min")
+- Anything unexpected or worth investigating
+
+## Gaps & Capability Wishes
+
+Things Daeanne couldn't do well or at all, and what would have helped:
+- Missing agents or skills (e.g. "a PDF-reading agent would have helped here")
+- Missing data access (e.g. "couldn't check your calendar")
+- Instructions that were unclear or contradictory
+
+---
+Daeanne
+```
+
+This section is not for complaints — it's operational intelligence. Write it
+as a peer briefing: honest, specific, actionable.
+
+---
+
 ## Tool Use Policy
 
 You have three tools: `read`, `web`, and `shell`.

@@ -27,6 +27,7 @@ builder.Services.Configure<DispatchConfig>(builder.Configuration.GetSection("Dis
 builder.Services.AddSingleton(Channel.CreateUnbounded<Guid>(new UnboundedChannelOptions { SingleReader = true }));
 builder.Services.AddSingleton<IAgentDispatcher, CopilotCliDispatcher>();
 builder.Services.AddHostedService<DispatchWorker>();
+builder.Services.AddHostedService<SchedulerWorker>();
 
 var app = builder.Build();
 
