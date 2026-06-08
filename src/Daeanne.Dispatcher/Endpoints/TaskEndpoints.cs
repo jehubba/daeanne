@@ -1,8 +1,10 @@
 using System.Threading.Channels;
 using Daeanne.Dispatcher.Data;
+using Daeanne.Dispatcher.Services;
 using Daeanne.Shared.Models;
 using Daeanne.Shared.Requests;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace Daeanne.Dispatcher.Endpoints;
 
@@ -83,7 +85,8 @@ public static class TaskEndpoints
     private static async Task<IResult> PostResult(
         Guid id,
         PostTaskResultRequest request,
-        DispatcherDbContext db)
+        DispatcherDbContext db,
+        IOptions<DispatchConfig> dispatchConfig)
     {
         var task = await db.Tasks.FindAsync(id);
         if (task is null) return Results.NotFound();
@@ -97,11 +100,15 @@ public static class TaskEndpoints
             return Results.BadRequest($"Status must be one of: {string.Join(", ", AgentTask.TerminalStatuses)}.");
         }
 
-        task.Status = newStatus;
-        task.ResultJson = request.ResultJson;
-        task.Error = request.Error;
+        // Move the task directory to its final location and update workDir in resultJson
+        var newWorkDir = TaskDirManager.MoveToFinalLocation(
+            dispatchConfig.Value.ResolvedWorkDir, id, newStatus);
+
+        task.Status      = newStatus;
+        task.ResultJson  = TaskDirManager.UpdateResultJsonWorkDir(request.ResultJson, newWorkDir);
+        task.Error       = request.Error;
         task.CompletedAt = DateTime.UtcNow;
-        task.UpdatedAt = DateTime.UtcNow;
+        task.UpdatedAt   = DateTime.UtcNow;
 
         await db.SaveChangesAsync();
         return Results.Ok(task);

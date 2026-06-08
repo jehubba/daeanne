@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Options;
 
 namespace Daeanne.Dispatcher.Services;
 
@@ -12,6 +13,7 @@ namespace Daeanne.Dispatcher.Services;
 /// </summary>
 public class SchedulerWorker(
     IConfiguration config,
+    IOptions<DispatchConfig> dispatchConfig,
     ILogger<SchedulerWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -50,6 +52,9 @@ public class SchedulerWorker(
             catch (OperationCanceledException) { break; }
 
             await PostDailySummaryTaskAsync(recipient, dispatcherUrl, stoppingToken);
+
+            // Archive completed tasks older than 30 days
+            TaskDirManager.ArchiveOld(dispatchConfig.Value.ResolvedWorkDir, archiveDays: 30, logger);
         }
     }
 
