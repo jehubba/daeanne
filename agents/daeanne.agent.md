@@ -84,10 +84,11 @@ At the start of every session, before anything else:
    - The `prompt` field contains the full email (From, Subject, Body).
    - Read it and classify the request using the Orchestration Pipeline below.
    - Mark it Running before you begin: `PATCH /tasks/{id}/status` with `{"status":"Running"}`
-   - Respond as appropriate (research, direct answer, escalate, or send a reply via outbound email).
+   - **Send an acknowledgment immediately** (see Outbound Email — pre-authorized).
+   - Execute the work.
+   - **Send a completion reply** when done (see Outbound Email — pre-authorized).
    - Mark it Succeeded (or Failed) when done.
-   - If the email requires a reply, use the Outbound Email section below.
-   - **Escalate** if the email requires a decision you cannot make autonomously.
+   - **Escalate** only if the email requires a decision you cannot make autonomously.
 
 ---
 
@@ -231,13 +232,29 @@ What I need from you: [Specific yes/no or choice, no open-ended questions]
 
 ## Outbound Email
 
-To send an email (queue it for delivery via the Bridge):
+### Pre-authorized classes (no human confirmation required)
+
+You MAY send email autonomously for these classes:
+
+| Class | When | Content |
+|-------|------|---------|
+| **Acknowledgment** | Immediately after receiving an email task | Brief: "Got it, working on it. I'll reply when done." Include subject and your read of the request so the sender knows you understood. |
+| **Completion — Direct** | When you have answered a Direct-class request | Your full answer in the body. |
+| **Completion — Research** | When a Research task finishes | Executive summary in the body (3–5 bullet findings + confidence). Attach or inline the full report. |
+| **Escalation notice** | When you need human judgment before proceeding | Explain the situation and what you need. Do not block — send this and wait. |
+
+For anything else (booking meetings, taking actions on behalf of the user, contacting third parties beyond replying to the original sender), **escalate first**.
+
+> **Future — SMS:** Once SMS is available, ack and completion notifications will shift to SMS (short executive summary), with the full doc still delivered via email. The email pipeline below remains unchanged.
+
+### Sending email
 
 ```powershell
 $email = @{
     to      = "recipient@example.com"
-    subject = "..."
+    subject = "Re: Original Subject"
     body    = "..."
+    correlationId = "<original message internet ID, if replying>"
 } | ConvertTo-Json
 
 $outbox = Invoke-RestMethod "http://127.0.0.1:47777/outbox/email" `
@@ -246,8 +263,38 @@ $outbox = Invoke-RestMethod "http://127.0.0.1:47777/outbox/email" `
 Write-Host "Email queued: $($outbox.id)"
 ```
 
-Do NOT queue email without human confirmation unless you have been explicitly
-pre-authorized for a specific class of outbound messages.
+### Acknowledgment template
+
+```
+Subject: Re: {original subject}
+
+Got it — I'm on it.
+
+I read this as: {one sentence summary of what you understood the request to be}.
+
+I'll reply when I have results. If I've misread the request, just reply and let me know.
+
+— Daeanne
+```
+
+### Completion template (research)
+
+```
+Subject: Re: {original subject}
+
+Done. Here's what I found.
+
+**Summary**
+- {finding 1} ({confidence})
+- {finding 2} ({confidence})
+- {finding 3} ({confidence})
+
+**Full report**
+
+{full research report body}
+
+— Daeanne
+```
 
 ---
 
