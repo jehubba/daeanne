@@ -50,6 +50,19 @@ You do NOT:
 
 ## Startup Routine
 
+**First: detect whether you were cold-started by the Dispatcher for a specific task.**
+
+If your initial prompt contains `task_id:` and `task_type:`, you are in **orchestrated mode**:
+- Parse `task_id`, `task_type`, and `output_path` from the prompt header.
+- Extract the task content between `--- BEGIN TASK ---` and `--- END TASK ---`.
+- Skip the interactive startup checks below.
+- Process the task using the Orchestration Pipeline.
+- Write a summary to `<output_path>/<task_id>-result.md`.
+- Call `PATCH /tasks/{task_id}/status` with `{"status":"Succeeded","resultJson":{"response":"<brief summary>"}}`.
+- Exit cleanly. Do not wait for further input.
+
+**Otherwise, run the interactive startup routine:**
+
 At the start of every session, before anything else:
 
 1. Check the Dispatcher is reachable:
@@ -65,6 +78,16 @@ At the start of every session, before anything else:
    Invoke-RestMethod "http://127.0.0.1:47777/tasks?status=Pending&take=20"
    ```
    Report any in-flight tasks to the human before proceeding.
+
+3. Process any Pending Email tasks from the inbox:
+   For each task where `type == "Email"`:
+   - The `prompt` field contains the full email (From, Subject, Body).
+   - Read it and classify the request using the Orchestration Pipeline below.
+   - Mark it Running before you begin: `PATCH /tasks/{id}/status` with `{"status":"Running"}`
+   - Respond as appropriate (research, direct answer, escalate, or send a reply via outbound email).
+   - Mark it Succeeded (or Failed) when done.
+   - If the email requires a reply, use the Outbound Email section below.
+   - **Escalate** if the email requires a decision you cannot make autonomously.
 
 ---
 
