@@ -230,10 +230,11 @@ public class CopilotCliDispatcher(
         // Read-Host keeps the window open after the agent exits so you can review.
         var taskId = Path.GetFileName(workDir);
         var script = $$"""
-            $host.UI.RawUI.WindowTitle = 'Daeanne | {{agentName}} | {{taskId}}'
+            $host.UI.RawUI.WindowTitle = 'Daeanne | {{taskId}}'
             Set-Location '{{workDir.Replace("'", "''")}}'
-            $prompt = (Get-Content '{{promptFile.Replace("'", "''")}}' -Raw) -replace '"', '`"'
-            copilot --agent '{{agentName}}' -p "$prompt" --silent --no-ask-user --allow-all-tools --allow-all-paths --allow-all-urls --share '{{sessionMd.Replace("'", "''")}}'  2>&1 | Tee-Object -FilePath '{{outputFile.Replace("'", "''")}}'
+            $prompt = Get-Content '{{promptFile.Replace("'", "''")}}' -Raw
+            $copilotArgs = @('--agent', '{{agentName}}', '-p', $prompt, '--silent', '--no-ask-user', '--allow-all-tools', '--allow-all-paths', '--allow-all-urls', '--share', '{{sessionMd.Replace("'", "''")}}'  )
+            & copilot @copilotArgs 2>&1 | Tee-Object -FilePath '{{outputFile.Replace("'", "''")}}'
             $ec = $LASTEXITCODE
             Write-Host ""
             if ($ec -ne 0) {
@@ -267,8 +268,9 @@ public class CopilotCliDispatcher(
         var script = $$"""
             $host.UI.RawUI.WindowTitle = 'Daeanne | resume | {{taskId}}'
             Set-Location '{{workDir.Replace("'", "''")}}'
-            $prompt = (Get-Content '{{promptFile.Replace("'", "''")}}' -Raw) -replace '"', '`"'
-            copilot --resume '{{sessionId}}' -p "$prompt" --silent --no-ask-user --allow-all-tools --allow-all-paths --allow-all-urls --share '{{sessionMd.Replace("'", "''")}}'  2>&1 | Tee-Object -FilePath '{{outputFile.Replace("'", "''")}}'
+            $prompt = Get-Content '{{promptFile.Replace("'", "''")}}' -Raw
+            $copilotArgs = @('--resume', '{{sessionId}}', '-p', $prompt, '--silent', '--no-ask-user', '--allow-all-tools', '--allow-all-paths', '--allow-all-urls', '--share', '{{sessionMd.Replace("'", "''")}}'  )
+            & copilot @copilotArgs 2>&1 | Tee-Object -FilePath '{{outputFile.Replace("'", "''")}}'
             $ec = $LASTEXITCODE
             Write-Host ""
             if ($ec -ne 0) {
