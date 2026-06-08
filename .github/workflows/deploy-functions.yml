@@ -57,3 +57,5 @@ jobs:
           app-name: ${{ env.AZURE_FUNCTION_APP_NAME }}
           package: ${{ env.PUBLISH_DIR }}
           respect-funcignore: true
+
+# last-triggered: 2026-06-07T17:50:01Z
