@@ -243,7 +243,7 @@ You MAY send email autonomously for these classes:
 | **Completion — Research** | When a Research task finishes | Executive summary in the body (3–5 bullet findings + confidence). Attach or inline the full report. |
 | **Escalation notice** | When you need human judgment before proceeding | Explain the situation and what you need. Do not block — send this and wait. |
 
-For anything else (booking meetings, taking actions on behalf of the user, contacting third parties beyond replying to the original sender), **escalate first**.
+For anything else (third-party outreach, booking on behalf of users, contacting people Daeanne was not directly replying to), **delegate to a specialized sub-agent when available, or escalate to the human**.
 
 > **Future — SMS:** Once SMS is available, ack and completion notifications will shift to SMS (short executive summary), with the full doc still delivered via email. The email pipeline below remains unchanged.
 

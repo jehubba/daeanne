@@ -14,6 +14,7 @@ public static class TaskEndpoints
         app.MapGet("/tasks/{id:guid}", GetTask);
         app.MapPost("/tasks", CreateTask);
         app.MapPost("/tasks/{id:guid}/result", PostResult);
+        app.MapPatch("/tasks/{id:guid}/status", PostResult);   // alias — agents use PATCH
     }
 
     private static async Task<IResult> GetTasks(
