@@ -9,8 +9,14 @@ using Microsoft.Extensions.Logging;
 namespace Daeanne.Functions;
 
 /// <summary>
-/// Receives inbound email events from Azure Communication Services via EventGrid webhook
-/// and enqueues them to the daeanne-inbox Service Bus queue for Bridge pickup.
+/// Receives inbound email events and enqueues them to the daeanne-inbox Service Bus queue
+/// for Bridge pickup.
+///
+/// STATUS: Stub — ACS inbound email (EmailReceived event) is private preview and not
+/// accessible. Future inbound options:
+///   - Microsoft Graph webhook on Exchange Online inbox (preferred — M365)
+///   - IMAP polling (any standard mailbox)
+/// The outbound path (EmailSendFunction + Bridge) is fully operational.
 /// </summary>
 public class EmailIngestFunction(ServiceBusClient sbClient, ILogger<EmailIngestFunction> logger)
 {

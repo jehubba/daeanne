@@ -71,24 +71,36 @@ dispatch via the Dispatcher.
 
 ---
 
-## Phase 4: Email Pipeline ✅ COMPLETE (pending ACS provisioning)
+## Phase 4: Email Pipeline ✅ COMPLETE (outbound only)
 
-**Goal:** Emails can reach Daeanne and Daeanne can send emails.
+**Goal:** Daeanne can send emails. Inbound deferred to Phase 4b.
 
 - [x] Azure Service Bus namespace: `sb-daeanne-comm`, queues: `daeanne-inbox` / `daeanne-outbox`
 - [x] `Daeanne.Shared`: `BridgeEmailMessage` contract, `OutboxEmailStatus.Processing`, `UpdateOutboxStatusRequest`
 - [x] `Daeanne.Dispatcher`: `POST /outbox/email`, `GET /outbox/email/{id}`, `PATCH /outbox/email/{id}/status`
-- [x] `DispatchWorker`: Email/Scheduling tasks left Pending (no agent in map); Bridge claims them
-- [x] `Daeanne.Bridge`: full bidirectional worker — inbound ServiceBusProcessor → POST /tasks; outbound 10s poll → PATCH Processing → SB publish → PATCH Sent/Failed
-- [x] `Daeanne.Functions`: `EmailIngest` (ACS EventGrid webhook → daeanne-inbox) + `EmailSend` (daeanne-outbox → ACS Email SDK)
-- [x] Full solution builds clean (0 errors, 0 warnings)
-- [ ] **Remaining:** ACS provisioning, domain setup, Function App deploy, Bridge connection string config, end-to-end smoke test
+- [x] `DispatchWorker`: Email/Scheduling tasks left Pending; Bridge claims them
+- [x] `Daeanne.Bridge`: bidirectional worker — outbound 10s poll → SB publish → PATCH Sent/Failed
+- [x] `Daeanne.Functions`: `EmailSend` (daeanne-outbox → ACS Email SDK) deployed to `func-daeanne-prod`
+- [x] ACS Communication Service (`acs-daeanne`), Email Service, domain `mail.statelyravenstudios.com` provisioned and verified
+- [x] Sender identity: `daeanne@mail.statelyravenstudios.com`
+- [x] GitHub Actions OIDC deploy workflow — triggers on push to `src/Daeanne.Functions/**`
 
 **Notes:**
-- Bridge runs as Windows Service (`UseWindowsService()`)
-- Stale `Processing` emails (>2 min) auto-retried on next Bridge poll cycle
-- `local.settings.json` has placeholder keys: `ServiceBusConnection`, `AcsEmailConnectionString`, `AcsEmailSenderAddress`
-- ACS event type parsed: `Microsoft.Communication.EmailReceived`
+- Bridge runs as Windows Service; stale `Processing` emails (>2 min) auto-retried
+- Function App app settings: `ServiceBusConnection`, `AcsEmailConnectionString`, `AcsEmailSenderAddress` configured
+- **ACS inbound email** (`EmailReceived` EventGrid event) is private preview — not available
+- `EmailIngestFunction` is a stub; inbound handled in Phase 4b
+
+---
+
+## Phase 4b: Inbound Email (Future)
+
+**Goal:** Emails sent to Daeanne reach her as tasks.
+
+- [ ] Decide inbound mechanism: Microsoft Graph webhook (if M365) or IMAP polling
+- [ ] Implement inbound function / poller
+- [ ] Wire to `daeanne-inbox` Service Bus queue → Bridge → Dispatcher Email task
+- [ ] End-to-end test: send email to Daeanne, watch it appear as a Pending task
 
 ---
 
