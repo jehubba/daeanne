@@ -21,10 +21,12 @@ public class CopilotCliDispatcher(
 
     public async Task<DispatchResult?> TryResumeAsync(AgentTask task, string workDir, CancellationToken ct = default)
     {
-        var sessionId = ExtractSessionId(workDir);
-        if (sessionId is null)
+        // Sessions are named by task ID (--name at dispatch time), so --resume <taskId> works directly.
+        var resumeKey = task.Id.ToString();
+        var sessionMdExists = File.Exists(Path.Combine(workDir, "session.md"));
+        if (!sessionMdExists)
         {
-            logger.LogDebug("TryResumeAsync: no session.md or session ID in {WorkDir}", workDir);
+            logger.LogDebug("TryResumeAsync: no session found for {TaskId}", task.Id);
             return null;
         }
 
@@ -42,7 +44,7 @@ public class CopilotCliDispatcher(
             complete anything remaining, and close the task as normal.
             """;
 
-        logger.LogInformation("Resuming task {TaskId} with session {SessionId}", task.Id, sessionId);
+        logger.LogInformation("Resuming task {TaskId} by name", task.Id);
 
         var psi = new ProcessStartInfo
         {
@@ -54,7 +56,7 @@ public class CopilotCliDispatcher(
             WorkingDirectory       = workDir
         };
 
-        psi.ArgumentList.Add("--resume"); psi.ArgumentList.Add(sessionId);
+        psi.ArgumentList.Add("--resume"); psi.ArgumentList.Add(resumeKey);
         psi.ArgumentList.Add("-p");       psi.ArgumentList.Add(orientingPrompt);
         psi.ArgumentList.Add("--silent");
         psi.ArgumentList.Add("--no-ask-user");
@@ -65,7 +67,7 @@ public class CopilotCliDispatcher(
         psi.ArgumentList.Add(Path.Combine(workDir, "session.md"));
 
         if (_config.ShowAgentWindow)
-            psi = BuildWindowedResumeProcess(psi, sessionId, orientingPrompt, workDir);
+            psi = BuildWindowedResumeProcess(psi, resumeKey, orientingPrompt, workDir);
 
         return await RunProcessAsync(task.Id, psi, workDir, ct);
     }
@@ -95,6 +97,7 @@ public class CopilotCliDispatcher(
         };
 
         psi.ArgumentList.Add("--agent"); psi.ArgumentList.Add(agentName);
+        psi.ArgumentList.Add("--name");  psi.ArgumentList.Add(task.Id.ToString()); // resume by task ID
         psi.ArgumentList.Add("-p");      psi.ArgumentList.Add(prompt);
         psi.ArgumentList.Add("--silent");
         psi.ArgumentList.Add("--no-ask-user");

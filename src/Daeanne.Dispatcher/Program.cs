@@ -59,5 +59,6 @@ app.MapGet("/health", () => Results.Ok(new
 
 app.MapTaskEndpoints();
 app.MapOutboxEndpoints();
+app.MapSchedulerEndpoints();
 
 app.Run();
