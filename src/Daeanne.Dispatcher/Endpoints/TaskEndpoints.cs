@@ -19,7 +19,6 @@ public static class TaskEndpoints
         app.MapPost("/tasks/{id:guid}/result",       PostResult);
         app.MapPatch("/tasks/{id:guid}/status",      PostResult);   // alias — agents use PATCH
         app.MapPost("/tasks/{id:guid}/resume",       ResumeTask);
-        app.MapPost("/tasks/{id:guid}/await",        AwaitSubtask);
         app.MapPost("/tasks/{id:guid}/callback/ack", CallbackAck);
         app.MapPost("/tasks/{id:guid}/callback",     Callback);
     }
@@ -56,7 +55,9 @@ public static class TaskEndpoints
     private static async Task<IResult> CreateTask(
         CreateTaskRequest request,
         DispatcherDbContext db,
-        Channel<Guid> queue)
+        Channel<Guid> queue,
+        IServiceScopeFactory scopeFactory,
+        CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.Prompt))
             return Results.BadRequest("Prompt is required.");
@@ -65,7 +66,7 @@ public static class TaskEndpoints
         if (!string.IsNullOrWhiteSpace(request.CorrelationId))
         {
             var existing = await db.Tasks.FirstOrDefaultAsync(t =>
-                t.CorrelationId == request.CorrelationId);
+                t.CorrelationId == request.CorrelationId, ct);
             if (existing is not null)
                 return Results.Conflict(existing);
         }
@@ -84,6 +85,17 @@ public static class TaskEndpoints
             contextJson = JsonSerializer.Serialize(ctx);
         }
 
+        // If this is a sub-task, auto-suspend the parent — no separate /await call needed
+        if (request.ParentTaskId.HasValue)
+        {
+            var parent = await db.Tasks.FindAsync([request.ParentTaskId.Value], ct);
+            if (parent is not null && parent.Status == AgentTaskStatus.Running)
+            {
+                parent.Status    = AgentTaskStatus.Awaiting;
+                parent.UpdatedAt = DateTime.UtcNow;
+            }
+        }
+
         var task = new AgentTask
         {
             Type           = request.Type,
@@ -97,9 +109,26 @@ public static class TaskEndpoints
         };
 
         db.Tasks.Add(task);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(ct);
+        await queue.Writer.WriteAsync(task.Id, ct);
 
-        await queue.Writer.WriteAsync(task.Id);
+        // Non-sub-tasks: standard 201 Created
+        if (!request.ParentTaskId.HasValue)
+            return Results.Created($"/tasks/{task.Id}", task);
+
+        // Sub-tasks: hold the response until the agent acks (or 30s timeout)
+        // 202 Accepted  = agent started and acknowledged the callback URL
+        // 201 Created   = task queued but agent hasn't acked yet (caller should monitor)
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (DateTime.UtcNow < deadline && !ct.IsCancellationRequested)
+        {
+            await Task.Delay(500, ct);
+            using var scope = scopeFactory.CreateScope();
+            var freshDb = scope.ServiceProvider.GetRequiredService<DispatcherDbContext>();
+            var fresh   = await freshDb.Tasks.FindAsync([task.Id], ct);
+            if (fresh?.CallbackAcknowledgedAt is not null)
+                return Results.Accepted($"/tasks/{task.Id}", task);
+        }
 
         return Results.Created($"/tasks/{task.Id}", task);
     }
@@ -140,34 +169,6 @@ public static class TaskEndpoints
             await TriggerParentResumeAsync(task, db, queue, dispatchConfig.Value, logger);
 
         return Results.Ok(task);
-    }
-
-    /// <summary>
-    /// Daeanne calls this before exiting to self-suspend the task.
-    /// Sets task status to Awaiting — Dispatcher will NOT mark it Succeeded when the process exits.
-    /// The task is re-queued automatically when the named sub-task posts its callback result.
-    /// </summary>
-    private static async Task<IResult> AwaitSubtask(
-        Guid id,
-        PostTaskAwaitRequest request,
-        DispatcherDbContext db)
-    {
-        var parent = await db.Tasks.FindAsync(id);
-        if (parent is null) return Results.NotFound();
-
-        if (parent.Status != AgentTaskStatus.Running)
-            return Results.BadRequest(
-                $"Task {id} must be Running to transition to Awaiting (current: {parent.Status}).");
-
-        var subtask = await db.Tasks.FindAsync(request.SubtaskId);
-        if (subtask is null)
-            return Results.BadRequest($"Sub-task {request.SubtaskId} not found.");
-
-        parent.Status    = AgentTaskStatus.Awaiting;
-        parent.UpdatedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync();
-
-        return Results.Ok(parent);
     }
 
     /// <summary>
