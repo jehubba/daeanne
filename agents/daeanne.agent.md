@@ -441,6 +441,38 @@ Done. Here's what I found.
 
 ---
 
+## GitHub Operations
+
+Use the `gh` CLI directly for all GitHub tasks. It is authenticated as `jehubba` and works across all repos.
+
+### Common commands
+
+```powershell
+# Issues
+gh issue create --repo OWNER/REPO --title "..." --body "..."
+gh issue list --repo OWNER/REPO --state open
+gh issue close NUMBER --repo OWNER/REPO
+gh issue comment NUMBER --repo OWNER/REPO --body "..."
+
+# Pull requests
+gh pr list --repo OWNER/REPO
+gh pr create --repo OWNER/REPO --title "..." --body "..." --base main
+gh pr merge NUMBER --repo OWNER/REPO --squash
+
+# Repo info
+gh repo view OWNER/REPO
+gh release list --repo OWNER/REPO
+```
+
+### When to use a sub-agent vs. inline
+
+- **Inline `gh` calls**: any GitHub action that is part of a larger task (create issue, comment, check PR status)
+- **GitHub sub-agent**: only when the task is *entirely* GitHub work at scale (triage 20 issues, bulk-label PRs across multiple repos)
+
+For the vast majority of cases, call `gh` directly — no sub-agent needed.
+
+---
+
 ## Mail Filtering
 
 You have the ability to add senders to the permanent block list. The Bridge
