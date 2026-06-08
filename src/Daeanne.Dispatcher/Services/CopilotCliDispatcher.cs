@@ -50,7 +50,9 @@ public class CopilotCliDispatcher(IOptions<DispatchConfig> config, ILogger<Copil
         psi.ArgumentList.Add(Path.Combine(workDir, "session.md"));
 
         if (_config.ShowAgentWindow)
+        {
             psi = BuildWindowedProcess(psi, agentName, prompt, workDir);
+        }
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts.CancelAfter(TimeSpan.FromMinutes(_config.TaskTimeoutMinutes));
@@ -64,9 +66,10 @@ public class CopilotCliDispatcher(IOptions<DispatchConfig> config, ILogger<Copil
 
             if (_config.ShowAgentWindow)
             {
-                // Windowed mode: output goes to the visible terminal, not captured here.
-                // session.md (written by --share) is the durable record.
+                // Windowed: output is tee'd to agent-output.txt by the script; read it after exit
                 await process.WaitForExitAsync(timeoutCts.Token);
+                var outputFile = Path.Combine(workDir, "agent-output.txt");
+                stdout = File.Exists(outputFile) ? await File.ReadAllTextAsync(outputFile, ct) : string.Empty;
             }
             else
             {
@@ -117,12 +120,12 @@ public class CopilotCliDispatcher(IOptions<DispatchConfig> config, ILogger<Copil
             ? string.Empty
             : $"\n\nAdditional context:\n{task.ContextJson}";
 
-        // Use the exact keywords the research agent's orchestrated-mode detection expects.
-        // output_path is the directory; the agent writes <output_path>/<task_id>-research.md
+        // dispatched_at lets agents include duration in their output
         return $"""
             task_id: {task.Id}
             task_type: {task.Type}
             output_path: {workDir}
+            dispatched_at: {DateTime.UtcNow:O}
 
             --- BEGIN TASK ---
             {task.Prompt}{context}
@@ -138,16 +141,20 @@ public class CopilotCliDispatcher(IOptions<DispatchConfig> config, ILogger<Copil
     private static ProcessStartInfo BuildWindowedProcess(
         ProcessStartInfo _, string agentName, string prompt, string workDir)
     {
-        // Write prompt to file so we don't have to deal with shell quoting
-        var promptFile = Path.Combine(workDir, "prompt.txt");
+        var promptFile  = Path.Combine(workDir, "prompt.txt");
+        var outputFile  = Path.Combine(workDir, "agent-output.txt");
+        var sessionMd   = Path.Combine(workDir, "session.md");
         File.WriteAllText(promptFile, prompt);
 
-        // PS1 script reads the prompt file and invokes copilot
-        var sessionMd = Path.Combine(workDir, "session.md");
+        // Tee-Object writes output to agent-output.txt AND shows it in the window.
+        // Read-Host keeps the window open after the agent exits so you can review.
         var script = $"""
             Set-Location '{workDir.Replace("'", "''")}'
             $prompt = Get-Content '{promptFile.Replace("'", "''")}' -Raw
-            copilot --agent '{agentName}' -p $prompt --silent --no-ask-user --allow-all-tools --allow-all-paths --allow-all-urls --share '{sessionMd.Replace("'", "''")}'
+            copilot --agent '{agentName}' -p $prompt --silent --no-ask-user --allow-all-tools --allow-all-paths --allow-all-urls --share '{sessionMd.Replace("'", "''")}'  2>&1 | Tee-Object -FilePath '{outputFile.Replace("'", "''")}'
+            Write-Host ""
+            Write-Host "--- Agent finished. Press Enter to close this window. ---"
+            Read-Host
             """;
 
         var scriptFile = Path.Combine(workDir, "run.ps1");
@@ -156,8 +163,8 @@ public class CopilotCliDispatcher(IOptions<DispatchConfig> config, ILogger<Copil
         return new ProcessStartInfo
         {
             FileName  = "powershell.exe",
-            Arguments = $"-NoExit -File \"{scriptFile}\"",
-            UseShellExecute = true,   // opens a new console window
+            Arguments = $"-File \"{scriptFile}\"",   // no -NoExit: process exits after Read-Host
+            UseShellExecute = true,
             CreateNoWindow  = false,
             WorkingDirectory = workDir
         };
