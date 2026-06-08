@@ -42,8 +42,10 @@ using (var scope = app.Services.CreateScope())
     db.Database.EnsureCreated();
 
     // Idempotent schema evolution: add new columns that EnsureCreated won't add to existing DBs.
-    try { db.Database.ExecuteSqlRaw("ALTER TABLE OutboxEmails ADD COLUMN ReplyToGraphMessageId TEXT"); }
-    catch { /* column already exists */ }
+    // Use PRAGMA check first so we never attempt the ALTER when the column exists — avoids EF error logs.
+    var cols = db.Database.SqlQueryRaw<string>("SELECT name FROM pragma_table_info('OutboxEmails')").ToList();
+    if (!cols.Contains("ReplyToGraphMessageId"))
+        db.Database.ExecuteSqlRaw("ALTER TABLE OutboxEmails ADD COLUMN ReplyToGraphMessageId TEXT");
 }
 
 app.Services.GetRequiredService<PreferenceMemoryService>().EnsurePreferencesFileExists();
