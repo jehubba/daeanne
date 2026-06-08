@@ -15,6 +15,12 @@ public class DispatchConfig
         : WorkDir;
 
     /// <summary>
+    /// Base URL of this Dispatcher, injected into sub-task prompts for callback_url.
+    /// Defaults to the localhost binding — override in appsettings if port changes.
+    /// </summary>
+    public string DispatcherUrl { get; set; } = "http://127.0.0.1:47777";
+
+    /// <summary>
     /// When true, Daeanne runs in a visible PowerShell window on cold start.
     /// The window closes automatically when she finishes the task.
     /// Useful for debugging; stdout is not captured in this mode (session.md is the record).

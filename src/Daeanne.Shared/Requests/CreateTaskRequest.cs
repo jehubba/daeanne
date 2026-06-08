@@ -30,4 +30,14 @@ public class CreateTaskRequest
     /// When present, stored in ContextJson so Daeanne can reply via POST /outbox/sms.
     /// </summary>
     public string? SenderPhone { get; set; }
+
+    /// <summary>ID of the parent task that dispatched this as a sub-task.</summary>
+    public Guid? ParentTaskId { get; set; }
+
+    /// <summary>
+    /// Optional stable Copilot session name for --name flag.
+    /// When set, agent accumulates context across separate firings.
+    /// When null, task ID is used (isolated per dispatch).
+    /// </summary>
+    public string? SessionName { get; set; }
 }

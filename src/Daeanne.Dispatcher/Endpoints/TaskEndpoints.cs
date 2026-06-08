@@ -13,12 +13,15 @@ public static class TaskEndpoints
 {
     public static void MapTaskEndpoints(this WebApplication app)
     {
-        app.MapGet("/tasks", GetTasks);
-        app.MapGet("/tasks/{id:guid}", GetTask);
-        app.MapPost("/tasks", CreateTask);
-        app.MapPost("/tasks/{id:guid}/result", PostResult);
-        app.MapPatch("/tasks/{id:guid}/status", PostResult);   // alias — agents use PATCH
-        app.MapPost("/tasks/{id:guid}/resume", ResumeTask);
+        app.MapGet("/tasks",                         GetTasks);
+        app.MapGet("/tasks/{id:guid}",               GetTask);
+        app.MapPost("/tasks",                        CreateTask);
+        app.MapPost("/tasks/{id:guid}/result",       PostResult);
+        app.MapPatch("/tasks/{id:guid}/status",      PostResult);   // alias — agents use PATCH
+        app.MapPost("/tasks/{id:guid}/resume",       ResumeTask);
+        app.MapPost("/tasks/{id:guid}/await",        AwaitSubtask);
+        app.MapPost("/tasks/{id:guid}/callback/ack", CallbackAck);
+        app.MapPost("/tasks/{id:guid}/callback",     Callback);
     }
 
     private static async Task<IResult> GetTasks(
@@ -62,7 +65,7 @@ public static class TaskEndpoints
         if (!string.IsNullOrWhiteSpace(request.CorrelationId))
         {
             var existing = await db.Tasks.FirstOrDefaultAsync(t =>
-                t.CorrelationId == request.CorrelationId);  // any status — prevents duplicates on restart
+                t.CorrelationId == request.CorrelationId);
             if (existing is not null)
                 return Results.Conflict(existing);
         }
@@ -83,18 +86,19 @@ public static class TaskEndpoints
 
         var task = new AgentTask
         {
-            Type          = request.Type,
-            Prompt        = request.Prompt,
-            ContextJson   = contextJson,
-            CorrelationId = request.CorrelationId,
-            IsScheduled   = request.IsScheduled,
-            ScheduledJobId = request.ScheduledJobId
+            Type           = request.Type,
+            Prompt         = request.Prompt,
+            ContextJson    = contextJson,
+            CorrelationId  = request.CorrelationId,
+            IsScheduled    = request.IsScheduled,
+            ScheduledJobId = request.ScheduledJobId,
+            ParentTaskId   = request.ParentTaskId,
+            SessionName    = request.SessionName
         };
 
         db.Tasks.Add(task);
         await db.SaveChangesAsync();
 
-        // Signal DispatchWorker — DB is source of truth, channel is wake-up only
         await queue.Writer.WriteAsync(task.Id);
 
         return Results.Created($"/tasks/{task.Id}", task);
@@ -104,7 +108,9 @@ public static class TaskEndpoints
         Guid id,
         PostTaskResultRequest request,
         DispatcherDbContext db,
-        IOptions<DispatchConfig> dispatchConfig)
+        Channel<Guid> queue,
+        IOptions<DispatchConfig> dispatchConfig,
+        ILogger<Program> logger)
     {
         var task = await db.Tasks.FindAsync(id);
         if (task is null) return Results.NotFound();
@@ -118,7 +124,6 @@ public static class TaskEndpoints
             return Results.BadRequest($"Status must be one of: {string.Join(", ", AgentTask.TerminalStatuses)}.");
         }
 
-        // Move the task directory to its final location and update workDir in resultJson
         var newWorkDir = TaskDirManager.MoveToFinalLocation(
             dispatchConfig.Value.ResolvedWorkDir, id, newStatus, task.IsScheduled);
 
@@ -129,13 +134,182 @@ public static class TaskEndpoints
         task.UpdatedAt   = DateTime.UtcNow;
 
         await db.SaveChangesAsync();
+
+        // If this is a sub-task, notify the parent
+        if (task.ParentTaskId.HasValue)
+            await TriggerParentResumeAsync(task, db, queue, dispatchConfig.Value, logger);
+
         return Results.Ok(task);
     }
 
     /// <summary>
+    /// Daeanne calls this before exiting to self-suspend the task.
+    /// Sets task status to Awaiting — Dispatcher will NOT mark it Succeeded when the process exits.
+    /// The task is re-queued automatically when the named sub-task posts its callback result.
+    /// </summary>
+    private static async Task<IResult> AwaitSubtask(
+        Guid id,
+        PostTaskAwaitRequest request,
+        DispatcherDbContext db)
+    {
+        var parent = await db.Tasks.FindAsync(id);
+        if (parent is null) return Results.NotFound();
+
+        if (parent.Status != AgentTaskStatus.Running)
+            return Results.BadRequest(
+                $"Task {id} must be Running to transition to Awaiting (current: {parent.Status}).");
+
+        var subtask = await db.Tasks.FindAsync(request.SubtaskId);
+        if (subtask is null)
+            return Results.BadRequest($"Sub-task {request.SubtaskId} not found.");
+
+        parent.Status    = AgentTaskStatus.Awaiting;
+        parent.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+
+        return Results.Ok(parent);
+    }
+
+    /// <summary>
+    /// Phase 1 of the callback contract — sub-agent POSTs this immediately on startup.
+    /// Analogous to HTTP 202 Accepted: "I received the callback URL and I am working on it."
+    /// Stamps CallbackAcknowledgedAt on the sub-task for observability.
+    /// </summary>
+    private static async Task<IResult> CallbackAck(
+        Guid id,
+        PostCallbackAckRequest request,
+        DispatcherDbContext db)
+    {
+        var parent = await db.Tasks.FindAsync(id);
+        if (parent is null) return Results.NotFound($"Parent task {id} not found.");
+
+        var subtask = await db.Tasks.FindAsync(request.SubtaskId);
+        if (subtask is null) return Results.NotFound($"Sub-task {request.SubtaskId} not found.");
+
+        subtask.CallbackAcknowledgedAt = DateTime.UtcNow;
+        subtask.UpdatedAt              = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+
+        return Results.Accepted();
+    }
+
+    /// <summary>
+    /// Phase 2 of the callback contract — sub-agent POSTs this when its work is complete.
+    /// Writes a callback file to the parent's task dir, then re-queues the parent as Pending
+    /// for fresh dispatch to any available agent instance.
+    /// </summary>
+    private static async Task<IResult> Callback(
+        Guid id,
+        PostCallbackRequest request,
+        DispatcherDbContext db,
+        Channel<Guid> queue,
+        IOptions<DispatchConfig> dispatchConfig,
+        ILogger<Program> logger)
+    {
+        var parent = await db.Tasks.FindAsync(id);
+        if (parent is null) return Results.NotFound($"Parent task {id} not found.");
+
+        var subtask = await db.Tasks.FindAsync(request.SubtaskId);
+        if (subtask is null) return Results.NotFound($"Sub-task {request.SubtaskId} not found.");
+
+        subtask.CallbackPostedAt = DateTime.UtcNow;
+        subtask.UpdatedAt        = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+
+        await WriteCallbackFileAsync(
+            parent, subtask.Id, request.Summary, request.ResultPath, request.Succeeded,
+            dispatchConfig.Value, logger);
+
+        bool requeued = false;
+        if (parent.Status == AgentTaskStatus.Awaiting)
+        {
+            parent.Status    = AgentTaskStatus.Pending;
+            parent.UpdatedAt = DateTime.UtcNow;
+            requeued         = true;
+            await db.SaveChangesAsync();
+            await queue.Writer.WriteAsync(parent.Id);
+            logger.LogInformation("Callback received from sub-task {SubId} → re-queued parent {ParentId}",
+                subtask.Id, parent.Id);
+        }
+
+        return Results.Ok(new { parentRequeued = requeued });
+    }
+
+    // ─── Shared helpers ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Called after a sub-task reaches a terminal state (via natural process exit or PostResult).
+    /// Writes a callback file to the parent's task dir and re-queues the parent if it's Awaiting.
+    /// </summary>
+    internal static async Task TriggerParentResumeAsync(
+        AgentTask completedSubTask,
+        DispatcherDbContext db,
+        Channel<Guid> queue,
+        DispatchConfig config,
+        ILogger logger)
+    {
+        if (completedSubTask.ParentTaskId is null) return;
+
+        var parent = await db.Tasks.FindAsync(completedSubTask.ParentTaskId.Value);
+        if (parent is null || parent.Status != AgentTaskStatus.Awaiting)
+        {
+            logger.LogDebug(
+                "Sub-task {SubId} completed but parent {ParentId} is not Awaiting (status: {Status}) — skipping.",
+                completedSubTask.Id, completedSubTask.ParentTaskId, parent?.Status);
+            return;
+        }
+
+        await WriteCallbackFileAsync(parent, completedSubTask.Id,
+            summary: null, resultPath: null,
+            succeeded: completedSubTask.Status == AgentTaskStatus.Succeeded,
+            config, logger,
+            resultJson: completedSubTask.ResultJson,
+            error: completedSubTask.Error);
+
+        parent.Status    = AgentTaskStatus.Pending;
+        parent.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+        await queue.Writer.WriteAsync(parent.Id);
+
+        logger.LogInformation("Sub-task {SubId} terminal → re-queued parent {ParentId}",
+            completedSubTask.Id, parent.Id);
+    }
+
+    private static async Task WriteCallbackFileAsync(
+        AgentTask parent, Guid subtaskId,
+        string? summary, string? resultPath, bool succeeded,
+        DispatchConfig config, ILogger logger,
+        string? resultJson = null, string? error = null)
+    {
+        try
+        {
+            var parentDir = TaskDirManager.FindTaskDir(config.ResolvedWorkDir, parent.Id)
+                            ?? TaskDirManager.ActivePath(config.ResolvedWorkDir, parent.Id, parent.IsScheduled);
+            var callbacksDir = Path.Combine(parentDir, "callbacks");
+            Directory.CreateDirectory(callbacksDir);
+
+            var payload = JsonSerializer.Serialize(new
+            {
+                subtaskId,
+                postedAt   = DateTime.UtcNow,
+                succeeded,
+                summary,
+                resultPath,
+                resultJson,
+                error
+            }, new JsonSerializerOptions { WriteIndented = true });
+
+            await File.WriteAllTextAsync(Path.Combine(callbacksDir, $"{subtaskId}.json"), payload);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not write callback file for sub-task {SubId} → parent {ParentId}",
+                subtaskId, parent.Id);
+        }
+    }
+
+    /// <summary>
     /// Manually resumes a Failed task that has a session.md in its work directory.
-    /// Resets status to Running, then re-dispatches using --resume.
-    /// Useful for tasks interrupted by a restart or Ctrl+C.
     /// </summary>
     private static async Task<IResult> ResumeTask(
         Guid id,
@@ -158,7 +332,6 @@ public static class TaskEndpoints
         if (!File.Exists(sessionPath))
             return Results.BadRequest($"No session.md in {workDir} — cannot resume (no prior session).");
 
-        // Move back to active/ (or scheduled/active/) and mark Running
         var activeDir = TaskDirManager.ActivePath(dispatchConfig.Value.ResolvedWorkDir, id, task.IsScheduled);
         if (!workDir.Equals(activeDir, StringComparison.OrdinalIgnoreCase))
         {
@@ -173,7 +346,6 @@ public static class TaskEndpoints
         task.AttemptCount++;
         await db.SaveChangesAsync();
 
-        // Fire resume in background using a fresh scope (request scope will close)
         _ = Task.Run(async () =>
         {
             var result = await dispatcher.TryResumeAsync(task, activeDir);
@@ -200,4 +372,3 @@ public static class TaskEndpoints
         return Results.Accepted($"/tasks/{id}", task);
     }
 }
-

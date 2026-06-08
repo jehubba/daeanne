@@ -97,7 +97,7 @@ public class CopilotCliDispatcher(
         };
 
         psi.ArgumentList.Add("--agent"); psi.ArgumentList.Add(agentName);
-        psi.ArgumentList.Add("--name");  psi.ArgumentList.Add(task.Id.ToString()); // resume by task ID
+        psi.ArgumentList.Add("--name");  psi.ArgumentList.Add(task.SessionName ?? task.Id.ToString());
         psi.ArgumentList.Add("-p");      psi.ArgumentList.Add(prompt);
         psi.ArgumentList.Add("--silent");
         psi.ArgumentList.Add("--no-ask-user");
@@ -198,6 +198,41 @@ public class CopilotCliDispatcher(
             : $"\n\nAdditional context:\n{task.ContextJson}";
         var preferences = _preferenceMemory.BuildPrincipalPreferencesBlock();
 
+        // Inject callback contract when this task was dispatched by a parent orchestrator
+        var callbackSection = string.Empty;
+        if (task.ParentTaskId.HasValue)
+        {
+            var baseUrl  = _config.DispatcherUrl ?? "http://127.0.0.1:47777";
+            var parentId = task.ParentTaskId.Value;
+            var taskId   = task.Id;
+
+            // Build PowerShell snippets separately to avoid brace-escaping conflicts in raw literals
+            var ackSnippet = "Invoke-RestMethod -Method Post \"" + baseUrl + "/tasks/" + parentId + "/callback/ack\" `\n"
+                           + "  -Body (@{ subtaskId = \"" + taskId + "\" } | ConvertTo-Json) -ContentType \"application/json\"";
+            var resultSnippet = "Invoke-RestMethod -Method Post \"" + baseUrl + "/tasks/" + parentId + "/callback\" `\n"
+                              + "  -Body (@{ subtaskId = \"" + taskId + "\"; summary = \"...\"; resultPath = \"...\"; succeeded = $true } | ConvertTo-Json) `\n"
+                              + "  -ContentType \"application/json\"";
+
+            callbackSection = $"""
+
+
+                ## Callback Contract (REQUIRED)
+                You were dispatched as a sub-task by parent task {parentId}.
+
+                parent_task_id:   {parentId}
+                callback_ack_url: {baseUrl}/tasks/{parentId}/callback/ack
+                callback_url:     {baseUrl}/tasks/{parentId}/callback
+
+                Step 1 — ACK immediately on startup, before any work:
+                  {ackSnippet}
+
+                Step 2 — POST result when complete:
+                  {resultSnippet}
+
+                Both steps are mandatory. Missing the ACK means the orchestrator thinks you never started.
+                """;
+        }
+
         // dispatched_at lets agents include duration in their output
         return $"""
             ## Character
@@ -208,7 +243,7 @@ public class CopilotCliDispatcher(
             task_id: {task.Id}
             task_type: {task.Type}
             output_path: {workDir}
-            dispatched_at: {DateTime.UtcNow:O}
+            dispatched_at: {DateTime.UtcNow:O}{callbackSection}
 
             --- BEGIN TASK ---
             {task.Prompt}{context}

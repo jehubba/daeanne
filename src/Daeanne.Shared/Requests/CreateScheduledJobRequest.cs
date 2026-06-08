@@ -15,4 +15,10 @@ public class CreateScheduledJobRequest
     public int?    IntervalMinutes { get; set; }    // interval only
 
     public string? CorrelationIdTemplate { get; set; }
+
+    /// <summary>
+    /// Optional stable Copilot session name (maps to --name flag).
+    /// When set, the agent accumulates context across separate firings of this job.
+    /// </summary>
+    public string? SessionName { get; set; }
 }

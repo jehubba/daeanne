@@ -27,6 +27,14 @@ public class ScheduledJob
     /// </summary>
     public string? CorrelationIdTemplate { get; set; }
 
+    /// <summary>
+    /// Optional stable Copilot session name for tasks spawned by this job.
+    /// When set, the agent uses --name {SessionName} so it accumulates context
+    /// across separate firings (e.g. "trend-analyzer" for cross-run research continuity).
+    /// When null, each firing uses the task ID as the session name (isolated context).
+    /// </summary>
+    public string? SessionName { get; set; }
+
     public DateTime  NextRunAt  { get; set; }
     public DateTime? LastFiredAt { get; set; }
     public bool      IsActive   { get; set; } = true;

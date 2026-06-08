@@ -162,7 +162,7 @@ public class SchedulerWorker(
             var resolvedPrompt = ResolveTokens(job.Prompt);
 
             await TryPostTaskAsync(resolvedPrompt, job.TaskType.ToString(),
-                correlationId, dispatcherUrl, ct, scheduledJobId: job.Id);
+                correlationId, dispatcherUrl, ct, scheduledJobId: job.Id, sessionName: job.SessionName);
 
             job.LastFiredAt = nowUtc;
             job.NextRunAt   = ComputeNextRun(job, DateTime.Now);
@@ -229,7 +229,7 @@ public class SchedulerWorker(
 
     private async Task TryPostTaskAsync(
         string prompt, string type, string? correlationId, string dispatcherUrl,
-        CancellationToken ct, Guid? scheduledJobId = null)
+        CancellationToken ct, Guid? scheduledJobId = null, string? sessionName = null)
     {
         var body = JsonSerializer.Serialize(new
         {
@@ -237,7 +237,8 @@ public class SchedulerWorker(
             prompt,
             correlationId,
             isScheduled    = true,
-            scheduledJobId = scheduledJobId?.ToString()
+            scheduledJobId = scheduledJobId?.ToString(),
+            sessionName
         });
         try
         {

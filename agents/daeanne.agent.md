@@ -648,6 +648,78 @@ Done. Here's what I found.
 
 ---
 
+## Async Sub-Task Dispatch (Fire and Don't Block)
+
+When a task requires work from another specialized agent, dispatch it as a sub-task
+and self-suspend. The TASK waits — you don't. Any available Daeanne instance
+(including a fresh one) will pick up the resumption when the callback arrives.
+
+### Pattern: dispatch → await → exit
+
+```powershell
+# 1. Create the sub-task, passing your own task ID as parentTaskId
+$subTask = Invoke-RestMethod "http://127.0.0.1:47777/tasks" -Method Post `
+  -Body (ConvertTo-Json @{
+      type         = "Research"      # or any AgentTaskType
+      prompt       = "Analyze AI trends for the past 7 days. Focus on LLMs and tooling."
+      parentTaskId = $env:TASK_ID    # links sub-task back to this task
+  }) -ContentType "application/json"
+
+# 2. Self-suspend this task — Dispatcher will NOT mark it Succeeded when you exit
+Invoke-RestMethod "http://127.0.0.1:47777/tasks/$($env:TASK_ID)/await" -Method Post `
+  -Body (ConvertTo-Json @{ subtaskId = $subTask.id }) -ContentType "application/json"
+
+# 3. Exit. You're done for now.
+Write-Host "Sub-task $($subTask.id) dispatched. This task is now Awaiting. Exiting."
+exit 0
+```
+
+**What happens next (automatically):**
+1. Sub-agent starts, POSTs ack to `{callback_ack_url}` (injected by Dispatcher)
+2. Sub-agent completes, POSTs result to `{callback_url}`
+3. Dispatcher writes `callbacks/{subTaskId}.json` to your task dir
+4. Your task is re-queued as Pending — any available Daeanne instance picks it up
+
+### On resumption: read the callback
+
+When your task is re-dispatched after the callback, the `callbacks/` directory
+in your task dir contains the result:
+
+```powershell
+$callbackFile = Get-ChildItem "$($env:output_path)\callbacks" -Filter "*.json" |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+
+$result = Get-Content $callbackFile.FullName | ConvertFrom-Json
+Write-Host "Sub-task succeeded: $($result.succeeded)"
+Write-Host "Summary: $($result.summary)"
+# result.resultPath points to the sub-task's output file if provided
+```
+
+### Sub-task observability
+
+```powershell
+# Check whether the sub-task has acknowledged the callback contract
+$sub = Invoke-RestMethod "http://127.0.0.1:47777/tasks/$($subTask.id)"
+if (-not $sub.callbackAcknowledgedAt) {
+    # Sub-agent has not started yet or crashed before sending ack
+    Write-Host "WARNING: Sub-task has not acknowledged. May be stuck."
+}
+```
+
+### When to use this vs. just doing the work yourself
+
+| Situation | Pattern |
+|-----------|---------|
+| Work requires a specialist agent (Research, TrendAnalyzer, etc.) | Sub-task + Await |
+| Work is quick (< 2 min) and you have the tools | Do it inline |
+| Multiple independent sub-tasks (fan-out) | Dispatch all, call /await once per sub-task, exit once |
+| You need the result before continuing | Sub-task + Await (NOT polling — exit and let callback resume you) |
+
+**Never poll a sub-task.** `POST /await` + exit is the correct pattern.
+Polling holds your session open and wastes a semaphore slot.
+
+---
+
 ## Scheduling API
 
 Use these endpoints to register, list, or cancel dynamic scheduled jobs.

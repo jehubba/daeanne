@@ -86,6 +86,7 @@ public static class SchedulerCronEndpoints
             DayOfWeek            = dayOfWeek,
             IntervalMinutes      = req.IntervalMinutes,
             CorrelationIdTemplate = req.CorrelationIdTemplate,
+            SessionName           = req.SessionName,
             NextRunAt            = nextRun,
             IsActive             = true,
             CreatedAt            = now

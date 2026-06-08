@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using Daeanne.Dispatcher.Data;
+using Daeanne.Dispatcher.Endpoints;
 using Daeanne.Shared.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -99,7 +100,9 @@ public class DispatchWorker(
                 var db = scope.ServiceProvider.GetRequiredService<DispatcherDbContext>();
                 var t = await db.Tasks.FindAsync([taskId], ct);
 
-                if (t is not null && !t.IsTerminal())
+                // Guard: if the agent set itself to Awaiting before exiting, do NOT override.
+                // The task is suspended waiting for a sub-task callback — leave it alone.
+                if (t is not null && !t.IsTerminal() && t.Status != AgentTaskStatus.Awaiting)
                 {
                     // Move dir first, then store the updated workDir in resultJson
                     var newWorkDir = TaskDirManager.MoveToFinalLocation(
@@ -113,6 +116,14 @@ public class DispatchWorker(
                     await db.SaveChangesAsync(ct);
 
                     logger.LogInformation("Task {TaskId} → {Status} (dir: {Dir})", taskId, finalStatus, newWorkDir);
+
+                    // If this is a sub-task, notify parent
+                    if (t.ParentTaskId.HasValue)
+                        await TaskEndpoints.TriggerParentResumeAsync(t, db, queue, _config, logger);
+                }
+                else if (t?.Status == AgentTaskStatus.Awaiting)
+                {
+                    logger.LogInformation("Task {TaskId} process exited but status is Awaiting — leaving suspended.", taskId);
                 }
             }
         }
@@ -202,6 +213,12 @@ public class DispatchWorker(
             logger.LogInformation(
                 "Rehydrated: {Pending} pending re-queued, {Interrupted} running → Failed.",
                 pendingIds.Count, interrupted.Count);
+
+        var awaitingCount = await db.Tasks.CountAsync(t => t.Status == AgentTaskStatus.Awaiting, ct);
+        if (awaitingCount > 0)
+            logger.LogInformation(
+                "Rehydrated: {Count} Awaiting task(s) found — suspended pending sub-task callbacks.",
+                awaitingCount);
     }
 
     private async Task TryMarkFailedAsync(Guid taskId, string error, CancellationToken ct)

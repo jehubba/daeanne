@@ -52,6 +52,18 @@ using (var scope = app.Services.CreateScope())
         db.Database.ExecuteSqlRaw("ALTER TABLE Tasks ADD COLUMN IsScheduled INTEGER NOT NULL DEFAULT 0");
     if (!taskCols.Contains("ScheduledJobId"))
         db.Database.ExecuteSqlRaw("ALTER TABLE Tasks ADD COLUMN ScheduledJobId TEXT");
+    if (!taskCols.Contains("ParentTaskId"))
+        db.Database.ExecuteSqlRaw("ALTER TABLE Tasks ADD COLUMN ParentTaskId TEXT");
+    if (!taskCols.Contains("SessionName"))
+        db.Database.ExecuteSqlRaw("ALTER TABLE Tasks ADD COLUMN SessionName TEXT");
+    if (!taskCols.Contains("CallbackAcknowledgedAt"))
+        db.Database.ExecuteSqlRaw("ALTER TABLE Tasks ADD COLUMN CallbackAcknowledgedAt TEXT");
+    if (!taskCols.Contains("CallbackPostedAt"))
+        db.Database.ExecuteSqlRaw("ALTER TABLE Tasks ADD COLUMN CallbackPostedAt TEXT");
+
+    var jobCols = db.Database.SqlQueryRaw<string>("SELECT name FROM pragma_table_info('ScheduledJobs')").ToList();
+    if (!jobCols.Contains("SessionName"))
+        db.Database.ExecuteSqlRaw("ALTER TABLE ScheduledJobs ADD COLUMN SessionName TEXT");
 
     // OutboxSms table for SMS outbox (Bridge sends when ACS SMS is configured)
     db.Database.ExecuteSqlRaw("""

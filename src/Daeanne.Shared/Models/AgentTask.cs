@@ -22,11 +22,33 @@ public class AgentTask
     /// </summary>
     public bool IsScheduled { get; set; } = false;
 
-    /// <summary>
-    /// ID of the ScheduledJob that spawned this task, if any.
-    /// Null for built-in scheduler jobs and manually created tasks.
-    /// </summary>
+    /// <summary>ID of the ScheduledJob that spawned this task, if any.</summary>
     public Guid? ScheduledJobId { get; set; }
+
+    /// <summary>
+    /// Optional stable session name for --name flag. When set (e.g. "trend-analyzer"),
+    /// the agent's Copilot session accumulates context across separate firings of this task type.
+    /// When null, task ID is used (default — isolated per dispatch).
+    /// </summary>
+    public string? SessionName { get; set; }
+
+    /// <summary>
+    /// ID of the parent task that dispatched this task as a sub-task.
+    /// When set, the Dispatcher injects callback_url into the prompt so this agent
+    /// knows to POST its result back when complete.
+    /// </summary>
+    public Guid? ParentTaskId { get; set; }
+
+    /// <summary>
+    /// When this sub-task posted its ack to {callback_url}/ack (phase 1 of callback contract).
+    /// Null until ack is received — a long-null ack indicates the agent never started.
+    /// </summary>
+    public DateTime? CallbackAcknowledgedAt { get; set; }
+
+    /// <summary>
+    /// When this sub-task posted its result to {callback_url} (phase 2 of callback contract).
+    /// </summary>
+    public DateTime? CallbackPostedAt { get; set; }
 
     public string? ResultJson { get; set; }
     public string? Error { get; set; }
