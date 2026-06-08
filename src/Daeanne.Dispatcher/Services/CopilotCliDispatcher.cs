@@ -230,8 +230,8 @@ public class CopilotCliDispatcher(
         // Read-Host keeps the window open after the agent exits so you can review.
         var script = $$"""
             Set-Location '{{workDir.Replace("'", "''")}}'
-            $prompt = Get-Content '{{promptFile.Replace("'", "''")}}' -Raw
-            copilot --agent '{{agentName}}' -p $prompt --silent --no-ask-user --allow-all-tools --allow-all-paths --allow-all-urls --share '{{sessionMd.Replace("'", "''")}}'  2>&1 | Tee-Object -FilePath '{{outputFile.Replace("'", "''")}}'
+            $prompt = (Get-Content '{{promptFile.Replace("'", "''")}}' -Raw) -replace '"', '`"'
+            copilot --agent '{{agentName}}' -p "$prompt" --silent --no-ask-user --allow-all-tools --allow-all-paths --allow-all-urls --share '{{sessionMd.Replace("'", "''")}}'  2>&1 | Tee-Object -FilePath '{{outputFile.Replace("'", "''")}}'
             $ec = $LASTEXITCODE
             Write-Host ""
             if ($ec -ne 0) {
@@ -263,8 +263,8 @@ public class CopilotCliDispatcher(
 
         var script = $$"""
             Set-Location '{{workDir.Replace("'", "''")}}'
-            $prompt = Get-Content '{{promptFile.Replace("'", "''")}}' -Raw
-            copilot --resume '{{sessionId}}' -p $prompt --silent --no-ask-user --allow-all-tools --allow-all-paths --allow-all-urls --share '{{sessionMd.Replace("'", "''")}}'  2>&1 | Tee-Object -FilePath '{{outputFile.Replace("'", "''")}}'
+            $prompt = (Get-Content '{{promptFile.Replace("'", "''")}}' -Raw) -replace '"', '`"'
+            copilot --resume '{{sessionId}}' -p "$prompt" --silent --no-ask-user --allow-all-tools --allow-all-paths --allow-all-urls --share '{{sessionMd.Replace("'", "''")}}'  2>&1 | Tee-Object -FilePath '{{outputFile.Replace("'", "''")}}'
             $ec = $LASTEXITCODE
             Write-Host ""
             if ($ec -ne 0) {
