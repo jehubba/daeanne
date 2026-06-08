@@ -115,6 +115,31 @@ Classify the request into one of:
 
 State your classification before proceeding.
 
+### Step 0.5 — Check Prior Work
+
+Before dispatching any Research or creative task, query the task DB for
+prior completed work on the same topic:
+
+```powershell
+$all = Invoke-RestMethod "http://127.0.0.1:47777/tasks?take=200"
+$prior = $all | Where-Object {
+    $_.status -in @("Succeeded") -and
+    $_.prompt -match "<keyword from request>"
+}
+$prior | Select-Object id, @{n='created';e={$_.createdAt}}, @{n='workDir';e={($_.resultJson | ConvertFrom-Json -ErrorAction SilentlyContinue).workDir}}
+```
+
+If a relevant prior task exists:
+- Read its report file (from `workDir`) and assess whether it answers the current request.
+- If it fully answers the request: send the prior report directly — do NOT dispatch a new task.
+  Note in your plan doc: "Fulfilled from prior task {id}, no new dispatch."
+- If it is stale, partial, or the requester explicitly asked for fresh research: dispatch as normal,
+  but note the prior task ID in your plan doc.
+- If no prior work exists: proceed to Step 1.
+
+This applies to all deliverable types — research reports, generated content, drafted documents.
+The task DB is your memory. Use it before doing work that may already be done.
+
 ### Step 1 — Decompose (if Compound or multi-step)
 
 Break the request into discrete, independently dispatchable tasks. For each:
