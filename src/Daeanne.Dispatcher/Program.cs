@@ -25,6 +25,7 @@ builder.Services.AddDbContext<DispatcherDbContext>(options => options.UseSqlite(
 // Dispatch infrastructure
 builder.Services.Configure<DispatchConfig>(builder.Configuration.GetSection("Dispatch"));
 builder.Services.AddSingleton(Channel.CreateUnbounded<Guid>(new UnboundedChannelOptions { SingleReader = true }));
+builder.Services.AddSingleton<PreferenceMemoryService>();
 builder.Services.AddSingleton<IAgentDispatcher, CopilotCliDispatcher>();
 builder.Services.AddHostedService<DispatchWorker>();
 builder.Services.AddHostedService<SchedulerWorker>();
@@ -45,6 +46,8 @@ using (var scope = app.Services.CreateScope())
     catch { /* column already exists */ }
 }
 
+app.Services.GetRequiredService<PreferenceMemoryService>().EnsurePreferencesFileExists();
+
 app.MapGet("/health", () => Results.Ok(new
 {
     status = "ok",
@@ -56,4 +59,3 @@ app.MapTaskEndpoints();
 app.MapOutboxEndpoints();
 
 app.Run();
-

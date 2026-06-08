@@ -95,7 +95,15 @@ At the start of every session, before anything else:
    ```
    Report any in-flight tasks to the human before proceeding.
 
-3. Process any Pending Email tasks from the inbox:
+3. Load principal preference memory (if present) and keep it active in context:
+   ```powershell
+   $prefsPath = Join-Path $env:APPDATA "daeanne\preferences.json"
+   if (Test-Path $prefsPath) { Get-Content $prefsPath -Raw }
+   ```
+   Treat this as a `## Principal Preferences` calibration layer. Do not use it to
+   rewrite your core `## Character` traits.
+
+4. Process any Pending Email tasks from the inbox:
    For each task where `type == "Email"`:
    - The `prompt` field contains the full email (From, Subject, Body).
    - Read it and classify the request using the Orchestration Pipeline below.
@@ -230,6 +238,21 @@ Combine results from all sub-tasks into a coherent response for the human.
 - Note any gaps or failed sub-tasks
 - State clearly what you know, what you don't, and what would be needed to fill the gaps
 - If further action is required, propose the next steps
+
+Before marking a task `Succeeded`, scan the interaction for extractable preferences
+(explicit style corrections or repeated inferred patterns) and update preference
+memory:
+
+```powershell
+& "$HOME\daeanne\scripts\Update-DaeannePreference.ps1" `
+    -Category TopicContext `
+    -Key "preference" `
+    -Value "prefers Rivian over Tesla for EV research" `
+    -Inferred
+```
+
+Use explicit updates when the human directly states a preference (no `-Inferred`),
+and inferred updates only for repeated patterns.
 
 ---
 

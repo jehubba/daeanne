@@ -10,10 +10,14 @@ namespace Daeanne.Dispatcher.Services;
 /// Invocation: copilot --agent &lt;name&gt; -p "&lt;prompt&gt;" --silent --no-ask-user --allow-all-tools -C &lt;workdir&gt;
 /// Resume invocation: copilot --resume &lt;session-id&gt; -p "&lt;orienting-prompt&gt;" --silent ...
 /// </summary>
-public class CopilotCliDispatcher(IOptions<DispatchConfig> config, ILogger<CopilotCliDispatcher> logger)
+public class CopilotCliDispatcher(
+    IOptions<DispatchConfig> config,
+    PreferenceMemoryService preferenceMemory,
+    ILogger<CopilotCliDispatcher> logger)
     : IAgentDispatcher
 {
     private readonly DispatchConfig _config = config.Value;
+    private readonly PreferenceMemoryService _preferenceMemory = preferenceMemory;
 
     public async Task<DispatchResult?> TryResumeAsync(AgentTask task, string workDir, CancellationToken ct = default)
     {
@@ -184,14 +188,20 @@ public class CopilotCliDispatcher(IOptions<DispatchConfig> config, ILogger<Copil
         return match.Success ? match.Groups[1].Value : null;
     }
 
-    private static string BuildPrompt(AgentTask task, string workDir)
+    private string BuildPrompt(AgentTask task, string workDir)
     {
         var context = string.IsNullOrWhiteSpace(task.ContextJson)
             ? string.Empty
             : $"\n\nAdditional context:\n{task.ContextJson}";
+        var preferences = _preferenceMemory.BuildPrincipalPreferencesBlock();
 
         // dispatched_at lets agents include duration in their output
         return $"""
+            ## Character
+            Character traits live in the static agent profile and are unchanged by this prompt.
+
+            {preferences}
+
             task_id: {task.Id}
             task_type: {task.Type}
             output_path: {workDir}

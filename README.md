@@ -28,6 +28,20 @@ cd ..\research-agent
 . .\scripts\setup-symlinks.ps1
 ```
 
+## Principal Preferences Memory
+
+Daeanne maintains principal calibration preferences in:
+
+- `%APPDATA%\daeanne\preferences.json`
+
+The file is JSON, versioned, and safe to edit manually.
+
+You can also update it with:
+
+```powershell
+.\scripts\Update-DaeannePreference.ps1 -Category Communication -Key tone -Value "direct, no pleasantries"
+```
+
 ## Repo Structure
 
 ```
