@@ -9,10 +9,14 @@ namespace Daeanne.Dispatcher.Services;
 /// Dispatches tasks by cold-starting the GitHub Copilot CLI in non-interactive mode.
 /// Invocation: copilot --agent &lt;name&gt; -p "&lt;prompt&gt;" --silent --no-ask-user --allow-all-tools -C &lt;workdir&gt;
 /// </summary>
-public class CopilotCliDispatcher(IOptions<DispatchConfig> config, ILogger<CopilotCliDispatcher> logger)
+public class CopilotCliDispatcher(
+    IOptions<DispatchConfig> config,
+    PreferenceMemoryService preferenceMemory,
+    ILogger<CopilotCliDispatcher> logger)
     : IAgentDispatcher
 {
     private readonly DispatchConfig _config = config.Value;
+    private readonly PreferenceMemoryService _preferenceMemory = preferenceMemory;
 
     public async Task<DispatchResult> DispatchAsync(AgentTask task, CancellationToken ct = default)
     {
@@ -98,15 +102,21 @@ public class CopilotCliDispatcher(IOptions<DispatchConfig> config, ILogger<Copil
         }
     }
 
-    private static string BuildPrompt(AgentTask task, string workDir)
+    private string BuildPrompt(AgentTask task, string workDir)
     {
         var context = string.IsNullOrWhiteSpace(task.ContextJson)
             ? string.Empty
             : $"\n\nAdditional context:\n{task.ContextJson}";
+        var preferences = _preferenceMemory.BuildPrincipalPreferencesBlock();
 
         // Use the exact keywords the research agent's orchestrated-mode detection expects.
         // output_path is the directory; the agent writes <output_path>/<task_id>-research.md
         return $"""
+            ## Character
+            Core personality traits are static in the agent profile and must not be modified.
+
+            {preferences}
+
             task_id: {task.Id}
             task_type: {task.Type}
             output_path: {workDir}

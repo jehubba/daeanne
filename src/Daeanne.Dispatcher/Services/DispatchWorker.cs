@@ -14,6 +14,7 @@ namespace Daeanne.Dispatcher.Services;
 public class DispatchWorker(
     Channel<Guid> queue,
     IAgentDispatcher dispatcher,
+    PreferenceMemoryService preferenceMemory,
     IServiceScopeFactory scopeFactory,
     IOptions<DispatchConfig> config,
     ILogger<DispatchWorker> logger) : BackgroundService
@@ -75,6 +76,18 @@ public class DispatchWorker(
             AgentTaskStatus finalStatus = result.Succeeded
                 ? AgentTaskStatus.Succeeded
                 : (ct.IsCancellationRequested ? AgentTaskStatus.Failed : AgentTaskStatus.Failed);
+
+            if (result.Succeeded)
+            {
+                try
+                {
+                    preferenceMemory.UpdateFromTaskClose(task);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Preference update failed for task {TaskId}; continuing completion.", task.Id);
+                }
+            }
 
             // Check if the failure was a timeout (error message indicates it)
             if (!result.Succeeded && result.Error?.Contains("timed out") == true)
