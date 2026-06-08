@@ -120,8 +120,21 @@ about Microsoft Graph.
 
 ## Future / Backlog
 
+- **Session suspend/resume (simulated async/await)** — The CLI's `--resume <session-id>`
+  flag + the `session.md` written by `--share` make agent sessions suspendable and
+  resumable. Two applications:
+  - *Crash recovery*: on Dispatcher restart, instead of marking Running tasks Failed,
+    extract the session ID from `{workDir}/session.md` and re-dispatch with
+    `--resume <id>` + an orienting prompt. Daeanne re-orients using restored context
+    + her plan doc.
+  - *Intentional suspend*: Daeanne dispatches a long sub-task, exits cleanly (freeing
+    her concurrency slot), and is resumed by the Dispatcher when the sub-task completes.
+    This is async/await at the process level — the "thread context" (session) lives on
+    disk, the process doesn't. Enables long compound tasks without holding a slot or
+    a polling loop open. Also useful for escalation gates: suspend until human replies.
+  - Work needed: `RehydrateAsync` resume path, `CopilotCliDispatcher.ResumeAsync`,
+    `Suspended` DB status, `POST /tasks/{id}/suspend` endpoint, wake-on-subtask-complete hook.
 - Daeanne context compaction strategy (long-running session management)
-- Outbox retry logic (failed email sends)
 - Task priority and scheduling (defer, repeat, deadline)
 - Additional sub-agents (code review, documentation, etc.)
 - Monitoring dashboard (web UI for Dispatcher task queue)

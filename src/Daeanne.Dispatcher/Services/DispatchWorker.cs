@@ -93,7 +93,7 @@ public class DispatchWorker(
             if (!result.Succeeded && result.Error?.Contains("timed out") == true)
                 finalStatus = AgentTaskStatus.TimedOut;
 
-            // Save result
+            // Save result — and move the task dir to its final location
             using (var scope = scopeFactory.CreateScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<DispatcherDbContext>();
@@ -101,14 +101,18 @@ public class DispatchWorker(
 
                 if (t is not null && !t.IsTerminal())
                 {
-                    t.Status = finalStatus;
-                    t.ResultJson = result.ResultJson;
-                    t.Error = result.Error;
+                    // Move dir first, then store the updated workDir in resultJson
+                    var newWorkDir = TaskDirManager.MoveToFinalLocation(
+                        _config.ResolvedWorkDir, taskId, finalStatus);
+
+                    t.Status     = finalStatus;
+                    t.ResultJson = TaskDirManager.UpdateResultJsonWorkDir(result.ResultJson, newWorkDir);
+                    t.Error      = result.Error;
                     t.CompletedAt = DateTime.UtcNow;
-                    t.UpdatedAt = DateTime.UtcNow;
+                    t.UpdatedAt   = DateTime.UtcNow;
                     await db.SaveChangesAsync(ct);
 
-                    logger.LogInformation("Task {TaskId} → {Status}", taskId, finalStatus);
+                    logger.LogInformation("Task {TaskId} → {Status} (dir: {Dir})", taskId, finalStatus, newWorkDir);
                 }
             }
         }
@@ -123,22 +127,81 @@ public class DispatchWorker(
         }
     }
 
-    /// <summary>On startup, re-enqueue any tasks that were interrupted by a previous shutdown.</summary>
+    /// <summary>
+    /// On startup: re-enqueue Pending tasks (never started), mark interrupted
+    /// Running tasks as Failed, migrate any legacy flat task dirs to subfolder layout,
+    /// and archive completed tasks older than 30 days.
+    /// </summary>
     private async Task RehydrateAsync(CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<DispatcherDbContext>();
 
-        var stalledIds = await db.Tasks
-            .Where(t => t.Status == AgentTaskStatus.Pending || t.Status == AgentTaskStatus.Running)
+        // Re-queue tasks that never started
+        var pendingIds = await db.Tasks
+            .Where(t => t.Status == AgentTaskStatus.Pending)
             .Select(t => t.Id)
             .ToListAsync(ct);
 
-        foreach (var id in stalledIds)
+        foreach (var id in pendingIds)
             await queue.Writer.WriteAsync(id, ct);
 
-        if (stalledIds.Count > 0)
-            logger.LogInformation("Rehydrated {Count} stalled task(s) from DB.", stalledIds.Count);
+        // Mark interrupted Running tasks as Failed (or resume them if a session exists)
+        var interrupted = await db.Tasks
+            .Where(t => t.Status == AgentTaskStatus.Running)
+            .ToListAsync(ct);
+
+        foreach (var t in interrupted)
+        {
+            var workDir = TaskDirManager.FindTaskDir(_config.ResolvedWorkDir, t.Id)
+                          ?? TaskDirManager.ActivePath(_config.ResolvedWorkDir, t.Id);
+
+            // Try to resume before giving up
+            var resumeResult = await dispatcher.TryResumeAsync(t, workDir, ct);
+            if (resumeResult is not null)
+            {
+                var finalStatus = resumeResult.Succeeded ? AgentTaskStatus.Succeeded : AgentTaskStatus.Failed;
+                var newWorkDir  = TaskDirManager.MoveToFinalLocation(_config.ResolvedWorkDir, t.Id, finalStatus);
+                t.Status     = finalStatus;
+                t.ResultJson = TaskDirManager.UpdateResultJsonWorkDir(resumeResult.ResultJson, newWorkDir);
+                t.Error      = resumeResult.Error;
+                t.CompletedAt = DateTime.UtcNow;
+                t.UpdatedAt   = DateTime.UtcNow;
+                logger.LogInformation("Resumed interrupted task {Id} → {Status}", t.Id, finalStatus);
+            }
+            else
+            {
+                // No session.md — can't resume, mark Failed and move dir
+                var newWorkDir = TaskDirManager.MoveToFinalLocation(_config.ResolvedWorkDir, t.Id, AgentTaskStatus.Failed);
+                t.Status      = AgentTaskStatus.Failed;
+                t.Error       = "Dispatcher restarted while task was Running; no session found for resume.";
+                t.CompletedAt = DateTime.UtcNow;
+                t.UpdatedAt   = DateTime.UtcNow;
+                t.ResultJson  = TaskDirManager.UpdateResultJsonWorkDir(t.ResultJson, newWorkDir);
+                logger.LogWarning("Task {Id} had no session.md — marked Failed (no resume possible)", t.Id);
+            }
+        }
+
+        if (interrupted.Count > 0)
+            await db.SaveChangesAsync(ct);
+
+        // Migrate legacy flat-layout dirs (tasks/{id}/ → tasks/{status}/{id}/)
+        var allTasks = await db.Tasks
+            .Select(t => new { t.Id, t.Status })
+            .ToListAsync(ct);
+
+        TaskDirManager.MigrateFlat(
+            _config.ResolvedWorkDir,
+            allTasks.Select(t => (t.Id, t.Status)),
+            logger);
+
+        // Archive completed tasks older than 30 days
+        TaskDirManager.ArchiveOld(_config.ResolvedWorkDir, archiveDays: 30, logger);
+
+        if (pendingIds.Count > 0 || interrupted.Count > 0)
+            logger.LogInformation(
+                "Rehydrated: {Pending} pending re-queued, {Interrupted} running → Failed.",
+                pendingIds.Count, interrupted.Count);
     }
 
     private async Task TryMarkFailedAsync(Guid taskId, string error, CancellationToken ct)
