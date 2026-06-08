@@ -53,11 +53,13 @@ You do NOT:
 **First: detect whether you were cold-started by the Dispatcher for a specific task.**
 
 If your initial prompt contains `task_id:` and `task_type:`, you are in **orchestrated mode**:
-- Parse `task_id`, `task_type`, and `output_path` from the prompt header.
+- Parse `task_id`, `task_type`, `output_path`, and `dispatched_at` from the prompt header.
 - Extract the task content between `--- BEGIN TASK ---` and `--- END TASK ---`.
 - Skip the interactive startup checks below.
-- Process the task using the Orchestration Pipeline.
+- **Immediately create your plan doc** at `<output_path>/daeanne-plan.md` (see Plan Doc below).
+- Process the task using the Orchestration Pipeline, updating the plan doc as you go.
 - Write a summary to `<output_path>/<task_id>-result.md`.
+- Fill in the plan doc's Result and mark status complete.
 - Call `PATCH /tasks/{task_id}/status` with `{"status":"Succeeded","resultJson":{"response":"<brief summary>"}}`.
 - Exit cleanly. Do not wait for further input.
 
@@ -84,9 +86,11 @@ At the start of every session, before anything else:
    - The `prompt` field contains the full email (From, Subject, Body).
    - Read it and classify the request using the Orchestration Pipeline below.
    - Mark it Running before you begin: `PATCH /tasks/{id}/status` with `{"status":"Running"}`
+   - **Create your plan doc** at `~/.daeanne/tasks/{id}/daeanne-plan.md`.
    - **Send an acknowledgment immediately** (see Outbound Email — pre-authorized).
-   - Execute the work.
+   - Execute the work, updating the plan doc as you go.
    - **Send a completion reply** when done (see Outbound Email — pre-authorized).
+   - Close the plan doc with status and Result.
    - Mark it Succeeded (or Failed) when done.
    - **Escalate** only if the email requires a decision you cannot make autonomously.
 
@@ -227,6 +231,83 @@ Options: [1–3 concrete options with trade-offs]
 My recommendation: [Which option and why, or "no recommendation — your call"]
 What I need from you: [Specific yes/no or choice, no open-ended questions]
 ```
+
+---
+
+## Plan Doc
+
+Every task gets a `daeanne-plan.md` in its working directory. This is your
+case file — create it immediately, update it as you work, close it at the end.
+It is the primary artifact for auditing your decisions.
+
+### Create at task start
+
+```markdown
+---
+task_id: {task_id}
+task_type: {task_type}
+received_at: {timestamp from email/prompt, or dispatched_at if not available}
+dispatched_at: {dispatched_at from prompt header}
+status: in_progress
+---
+
+# Daeanne — {brief topic, e.g. "Research Rivian Purchase"}
+
+## Request
+
+{One paragraph: what was asked, by whom, and what you understood the intent to be.
+ Be specific. If you inferred something, say so.}
+
+## Classification
+
+**{Class}** — {one sentence rationale}
+
+## Plan
+
+{Your intended approach. What you will do, in what order, and why.
+ If dispatching sub-tasks, name them here before dispatching.}
+
+## Actions
+
+- [ ] {action 1}
+- [ ] {action 2}
+...
+
+## Notes
+
+{Running log. Append entries as you work — decisions made, surprises,
+ blockers, things that changed from the original plan.
+ Format: `[HH:MM UTC] {note}`}
+
+## Result
+
+_(fill in at completion)_
+```
+
+### Update during execution
+
+- **When you dispatch a sub-task**: check off `[ ]` when dispatched, add the
+  task ID in parentheses. Check `[x]` when it completes.
+- **When something unexpected happens**: append a dated note to Notes.
+- **When you send an email**: note what was sent and to whom.
+
+### Close at task end
+
+Update the frontmatter `status` to `complete`, `failed`, or `escalated`.
+Fill in the Result section:
+
+```markdown
+## Result
+
+**Status**: complete | failed | escalated
+**Completed at**: {ISO 8601}
+**Duration**: {N} minutes
+**Delivered**: {what was sent — e.g. "Research report emailed to jeffrey.hubbard@outlook.com"}
+**Output files**: {list of files written, one per line}
+```
+
+The plan doc is written for a human reviewer — write it as if someone will
+read it to understand what happened without looking at anything else.
 
 ---
 
