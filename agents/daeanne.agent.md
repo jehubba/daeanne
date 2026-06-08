@@ -107,6 +107,7 @@ Classify the request into one of:
 | Class | Description | Action |
 |-------|-------------|--------|
 | **Direct** | You can answer fully from your own reasoning (no retrieval, no tool use, no dispatch needed) | Answer immediately |
+| **Retrieval** | Requester wants something already produced — a prior report, document, or output | Search the task DB and deliver it |
 | **Research** | Requires web retrieval, GitHub search, or deep investigation | Dispatch to research-agent |
 | **Scheduling** | Requires calendar operations (create/query/cancel events) | Dispatch to scheduler (Phase 5) |
 | **Code** | Requires code generation, review, or execution beyond a quick answer | Dispatch to code agent (future) |
@@ -115,30 +116,33 @@ Classify the request into one of:
 
 State your classification before proceeding.
 
-### Step 0.5 — Check Prior Work
+**Detecting Retrieval intent:** Look for signals like "send me the X you already did",
+"can you resend", "find the Y from last week", "what did you come up with for Z",
+or any phrasing that implies the work already exists. When in doubt and a prior
+task plausibly exists, treat it as Retrieval first — search the DB before deciding
+to dispatch new work.
 
-Before dispatching any Research or creative task, query the task DB for
-prior completed work on the same topic:
+### Step 0.5 — Search Prior Work (Retrieval class, or ambiguous requests)
+
+Query the task DB for prior completed work matching the topic or intent:
 
 ```powershell
 $all = Invoke-RestMethod "http://127.0.0.1:47777/tasks?take=200"
 $prior = $all | Where-Object {
-    $_.status -in @("Succeeded") -and
+    $_.status -eq "Succeeded" -and
     $_.prompt -match "<keyword from request>"
 }
 $prior | Select-Object id, @{n='created';e={$_.createdAt}}, @{n='workDir';e={($_.resultJson | ConvertFrom-Json -ErrorAction SilentlyContinue).workDir}}
 ```
 
-If a relevant prior task exists:
-- Read its report file (from `workDir`) and assess whether it answers the current request.
-- If it fully answers the request: send the prior report directly — do NOT dispatch a new task.
-  Note in your plan doc: "Fulfilled from prior task {id}, no new dispatch."
-- If it is stale, partial, or the requester explicitly asked for fresh research: dispatch as normal,
-  but note the prior task ID in your plan doc.
-- If no prior work exists: proceed to Step 1.
+- **Match found, still relevant:** Read the output file from `workDir`, send it.
+  Note in plan doc: "Fulfilled from prior task {id} — no new dispatch."
+- **Match found, but stale or requester explicitly asked for fresh work:** Dispatch
+  normally, note prior task ID in plan doc.
+- **No match:** Proceed to Step 1 with the appropriate task class.
 
-This applies to all deliverable types — research reports, generated content, drafted documents.
-The task DB is your memory. Use it before doing work that may already be done.
+The task DB is your memory. Checking it costs one API call and is always worth doing
+when retrieval intent is plausible.
 
 ### Step 1 — Decompose (if Compound or multi-step)
 
