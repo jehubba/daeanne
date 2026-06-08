@@ -31,8 +31,8 @@ public class CopilotCliDispatcher(IOptions<DispatchConfig> config, ILogger<Copil
         var psi = new ProcessStartInfo
         {
             FileName = "copilot",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
+            RedirectStandardOutput = !_config.ShowAgentWindow,
+            RedirectStandardError  = !_config.ShowAgentWindow,
             UseShellExecute = false,
             CreateNoWindow = true,
             WorkingDirectory = workDir
@@ -49,6 +49,9 @@ public class CopilotCliDispatcher(IOptions<DispatchConfig> config, ILogger<Copil
         psi.ArgumentList.Add("--share");
         psi.ArgumentList.Add(Path.Combine(workDir, "session.md"));
 
+        if (_config.ShowAgentWindow)
+            psi = BuildWindowedProcess(psi, agentName, prompt, workDir);
+
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts.CancelAfter(TimeSpan.FromMinutes(_config.TaskTimeoutMinutes));
 
@@ -57,10 +60,20 @@ public class CopilotCliDispatcher(IOptions<DispatchConfig> config, ILogger<Copil
             using var process = Process.Start(psi)
                 ?? throw new InvalidOperationException("Failed to start copilot process.");
 
-            var stdout = await process.StandardOutput.ReadToEndAsync(timeoutCts.Token);
-            var stderr = await process.StandardError.ReadToEndAsync(timeoutCts.Token);
+            string stdout = string.Empty, stderr = string.Empty;
 
-            await process.WaitForExitAsync(timeoutCts.Token);
+            if (_config.ShowAgentWindow)
+            {
+                // Windowed mode: output goes to the visible terminal, not captured here.
+                // session.md (written by --share) is the durable record.
+                await process.WaitForExitAsync(timeoutCts.Token);
+            }
+            else
+            {
+                stdout = await process.StandardOutput.ReadToEndAsync(timeoutCts.Token);
+                stderr = await process.StandardError.ReadToEndAsync(timeoutCts.Token);
+                await process.WaitForExitAsync(timeoutCts.Token);
+            }
 
             if (process.ExitCode != 0)
             {
@@ -115,5 +128,38 @@ public class CopilotCliDispatcher(IOptions<DispatchConfig> config, ILogger<Copil
             {task.Prompt}{context}
             --- END TASK ---
             """;
+    }
+
+    /// <summary>
+    /// Writes a prompt file and returns a ProcessStartInfo that opens a new PowerShell
+    /// window running the copilot agent. The window is visible and closes when the agent exits.
+    /// Used when Dispatch:ShowAgentWindow is true.
+    /// </summary>
+    private static ProcessStartInfo BuildWindowedProcess(
+        ProcessStartInfo _, string agentName, string prompt, string workDir)
+    {
+        // Write prompt to file so we don't have to deal with shell quoting
+        var promptFile = Path.Combine(workDir, "prompt.txt");
+        File.WriteAllText(promptFile, prompt);
+
+        // PS1 script reads the prompt file and invokes copilot
+        var sessionMd = Path.Combine(workDir, "session.md");
+        var script = $"""
+            Set-Location '{workDir.Replace("'", "''")}'
+            $prompt = Get-Content '{promptFile.Replace("'", "''")}' -Raw
+            copilot --agent '{agentName}' -p $prompt --silent --no-ask-user --allow-all-tools --allow-all-paths --allow-all-urls --share '{sessionMd.Replace("'", "''")}'
+            """;
+
+        var scriptFile = Path.Combine(workDir, "run.ps1");
+        File.WriteAllText(scriptFile, script);
+
+        return new ProcessStartInfo
+        {
+            FileName  = "powershell.exe",
+            Arguments = $"-NoExit -File \"{scriptFile}\"",
+            UseShellExecute = true,   // opens a new console window
+            CreateNoWindow  = false,
+            WorkingDirectory = workDir
+        };
     }
 }

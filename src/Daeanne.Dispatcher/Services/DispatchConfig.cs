@@ -14,6 +14,13 @@ public class DispatchConfig
         ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".daeanne", "tasks")
         : WorkDir;
 
+    /// <summary>
+    /// When true, Daeanne runs in a visible PowerShell window on cold start.
+    /// The window closes automatically when she finishes the task.
+    /// Useful for debugging; stdout is not captured in this mode (session.md is the record).
+    /// </summary>
+    public bool ShowAgentWindow { get; set; } = false;
+
     /// <summary>Maximum minutes a dispatched task may run before being timed out.</summary>
     public int TaskTimeoutMinutes { get; set; } = 10;
 

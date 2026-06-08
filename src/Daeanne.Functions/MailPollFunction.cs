@@ -25,7 +25,9 @@ public class MailPollFunction(
     private const string GraphBase = "https://graph.microsoft.com/v1.0";
     private const string TokenEndpoint = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
 
-    [Function("MailPoll")]
+    // DISABLED: Graph polling moved to Daeanne.Bridge / GraphMailWorker.cs.
+    // Keeping code for reference. Remove [Function] attribute to prevent deployment.
+    // [Function("MailPoll")]
     public async Task Run([TimerTrigger("0 */1 * * * *")] TimerInfo timer)
     {
         var clientId = config["GraphClientId"]
