@@ -6,5 +6,7 @@ public enum AgentTaskType
     Scheduling,
     Code,
     Email,
-    Generic
+    Generic,
+    DailySummary,
+    WeeklyOnOnOne
 }

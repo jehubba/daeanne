@@ -5,11 +5,12 @@ using Microsoft.Extensions.Options;
 namespace Daeanne.Dispatcher.Services;
 
 /// <summary>
-/// Fires scheduled tasks at configured times.
-/// Currently: daily summary at a configurable local time (default 08:00).
+/// Fires scheduled tasks based on wall-clock time, checked every minute.
+/// Uses correlationId idempotency to avoid duplicate tasks on restart.
 ///
-/// Each scheduled trigger POSTs a task to the Dispatcher's own HTTP API,
-/// so it goes through the normal dispatch pipeline — no special handling needed.
+/// Schedules:
+///   - Daily summary: every day at DailySummaryTime (default 08:00)
+///   - Weekly 1:1:   every Friday at WeeklyTime (default 08:00)
 /// </summary>
 public class SchedulerWorker(
     IConfiguration config,
@@ -19,69 +20,57 @@ public class SchedulerWorker(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var enabled   = config.GetValue<bool>("Scheduler:DailySummaryEnabled", true);
-        var timeStr   = config["Scheduler:DailySummaryTime"] ?? "08:00";
         var recipient = config["Scheduler:DailySummaryRecipient"];
         var dispatcherUrl = config["Dispatcher:Url"] ?? "http://127.0.0.1:47777";
 
-        if (!enabled)
+        if (!enabled || string.IsNullOrWhiteSpace(recipient))
         {
-            logger.LogInformation("SchedulerWorker: daily summary disabled.");
+            logger.LogWarning("SchedulerWorker: disabled or recipient not configured.");
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(recipient))
-        {
-            logger.LogWarning("SchedulerWorker: Scheduler:DailySummaryRecipient not set — daily summary disabled.");
-            return;
-        }
+        if (!TimeOnly.TryParse(config["Scheduler:DailySummaryTime"] ?? "08:00", out var dailyTime))
+            dailyTime = new TimeOnly(8, 0);
 
-        if (!TimeOnly.TryParse(timeStr, out var fireTime))
-        {
-            logger.LogWarning("SchedulerWorker: invalid Scheduler:DailySummaryTime '{Time}' — using 08:00.", timeStr);
-            fireTime = new TimeOnly(8, 0);
-        }
+        if (!TimeOnly.TryParse(config["Scheduler:WeeklyTime"] ?? "08:00", out var weeklyTime))
+            weeklyTime = new TimeOnly(8, 0);
 
-        logger.LogInformation("SchedulerWorker: daily summary at {Time} local → {Recipient}", fireTime, recipient);
+        var weeklyDay = config.GetValue("Scheduler:WeeklyDayOfWeek", DayOfWeek.Friday);
 
+        logger.LogInformation(
+            "SchedulerWorker: daily at {Daily}, weekly 1:1 on {Day} at {Weekly} → {Recipient}",
+            dailyTime, weeklyDay, weeklyTime, recipient);
+
+        // Poll every minute and fire when wall-clock time matches a schedule.
+        // correlationId = "daily-summary-{yyyyMMdd}" / "weekly-oneonone-{yyyyMMdd}" ensures
+        // at-most-once per period even if Dispatcher restarts multiple times.
         while (!stoppingToken.IsCancellationRequested)
         {
-            var delay = TimeUntilNext(fireTime);
-            logger.LogInformation("SchedulerWorker: next daily summary in {H:F1} hours.", delay.TotalHours);
+            var now = DateTime.Now;
 
-            try { await Task.Delay(delay, stoppingToken); }
+            // Daily summary: fire if today's window has been reached and not yet created
+            if (TimeOnly.FromDateTime(now) >= dailyTime)
+                await TryPostTaskAsync(BuildDailySummaryPrompt(now, recipient),
+                    "DailySummary", $"daily-summary-{now:yyyyMMdd}", dispatcherUrl, stoppingToken);
+
+            // Weekly 1:1: fire on the configured day
+            if (now.DayOfWeek == weeklyDay && TimeOnly.FromDateTime(now) >= weeklyTime)
+                await TryPostTaskAsync(BuildWeeklyPrompt(now, recipient),
+                    "DailySummary", $"weekly-oneonone-{now:yyyyMMdd}", dispatcherUrl, stoppingToken);
+
+            // Archive old task dirs once a day (piggyback on daily check)
+            if (TimeOnly.FromDateTime(now) >= dailyTime && TimeOnly.FromDateTime(now) < dailyTime.AddMinutes(2))
+                TaskDirManager.ArchiveOld(dispatchConfig.Value.ResolvedWorkDir, archiveDays: 30, logger);
+
+            try { await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken); }
             catch (OperationCanceledException) { break; }
-
-            await PostDailySummaryTaskAsync(recipient, dispatcherUrl, stoppingToken);
-
-            // Archive completed tasks older than 30 days
-            TaskDirManager.ArchiveOld(dispatchConfig.Value.ResolvedWorkDir, archiveDays: 30, logger);
         }
     }
 
-    private async Task PostDailySummaryTaskAsync(
-        string recipient, string dispatcherUrl, CancellationToken ct)
+    private async Task TryPostTaskAsync(
+        string prompt, string type, string correlationId, string dispatcherUrl, CancellationToken ct)
     {
-        var windowEnd   = DateTime.Now;
-        var windowStart = windowEnd.AddHours(-24);
-
-        var prompt = $"""
-            Daily summary request — {windowEnd:yyyy-MM-dd HH:mm} local
-
-            Summarize all Daeanne activity in the 24-hour window:
-              Window start: {windowStart:O}
-              Window end:   {windowEnd:O}
-              Recipient:    {recipient}
-
-            See the Daily Summary section of your instructions for the full format and procedure.
-            """;
-
-        var body = JsonSerializer.Serialize(new
-        {
-            type    = "DailySummary",
-            prompt,
-            correlationId = $"daily-summary-{windowEnd:yyyyMMdd}"
-        });
-
+        var body = JsonSerializer.Serialize(new { type, prompt, correlationId });
         try
         {
             using var http = new HttpClient();
@@ -90,24 +79,39 @@ public class SchedulerWorker(
                 new StringContent(body, Encoding.UTF8, "application/json"), ct);
 
             if (resp.IsSuccessStatusCode)
-                logger.LogInformation("SchedulerWorker: daily summary task created for {Date}.", windowEnd.Date);
+                logger.LogInformation("SchedulerWorker: created task [{CorrelationId}]", correlationId);
             else if (resp.StatusCode == System.Net.HttpStatusCode.Conflict)
-                logger.LogInformation("SchedulerWorker: daily summary for {Date} already exists — skipping.", windowEnd.Date);
+                logger.LogInformation("SchedulerWorker: [{CorrelationId}] already exists — skipping", correlationId);
             else
-                logger.LogWarning("SchedulerWorker: failed to create daily summary task ({Code}).", resp.StatusCode);
+                logger.LogWarning("SchedulerWorker: failed to create [{CorrelationId}] ({Code})",
+                    correlationId, resp.StatusCode);
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "SchedulerWorker: error posting daily summary task.");
+            logger.LogError(ex, "SchedulerWorker: error posting [{CorrelationId}]", correlationId);
         }
     }
 
-    /// <summary>Returns the duration until the next occurrence of <paramref name="time"/> local time.</summary>
-    private static TimeSpan TimeUntilNext(TimeOnly time)
-    {
-        var now  = DateTime.Now;
-        var next = now.Date + time.ToTimeSpan();
-        if (next <= now) next = next.AddDays(1);
-        return next - now;
-    }
+    private static string BuildDailySummaryPrompt(DateTime now, string recipient) => $"""
+        Daily summary request — {now:yyyy-MM-dd HH:mm} local
+
+        Summarize all Daeanne activity in the past 24 hours.
+          Window: {now.AddHours(-24):O} → {now:O}
+          Recipient: {recipient}
+
+        See the Daily Summary section of your instructions for the full format and procedure.
+        Include today's journal entries from ~/.daeanne/journal/{now:yyyy-MM-dd}.md if it exists.
+        """;
+
+    private static string BuildWeeklyPrompt(DateTime now, string recipient) => $"""
+        Weekly 1:1 report — {now:yyyy-MM-dd HH:mm} local
+
+        Prepare a weekly review for Jeffrey. This is your reflective 1:1 as Chief of Staff.
+          Week: {now.AddDays(-7):O} → {now:O}
+          Recipient: {recipient}
+
+        Cover: what got done, what worked, what didn't, blockers, things you wish you had,
+        ideas or suggestions, anything you want Jeffrey to know or decide on.
+        Be candid — this is your opportunity to speak up, not just summarize.
+        """;
 }
