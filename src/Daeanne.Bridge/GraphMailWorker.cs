@@ -24,7 +24,11 @@ public class GraphMailWorker(
     private const string GraphBase = "https://graph.microsoft.com/v1.0";
     private const string TokenEndpoint = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
 
-    private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
+    private static readonly JsonSerializerOptions JsonOpts = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
+    };
 
     private static readonly string TokenStatePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
