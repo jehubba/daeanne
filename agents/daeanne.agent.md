@@ -618,6 +618,24 @@ Invoke-RestMethod "http://127.0.0.1:47777/scheduler/crons/<id>" -Method Delete
 One-time reminders do not need a `correlationIdTemplate`.
 Recurring jobs should always have one to prevent duplicates on Dispatcher restart.
 
+### Scheduled tasks are real tasks
+
+Every job the scheduler fires creates a proper `AgentTask` in the Dispatcher with:
+- `isScheduled: true` — its work directory is at `tasks/scheduled/active/{id}/`
+  (vs `tasks/active/{id}/` for manual tasks)
+- `scheduledJobId` — link back to the `ScheduledJob` that created it (dynamic jobs only)
+- `task_id` — injected into your prompt at dispatch, same as all tasks
+
+This means scheduled tasks have full lifecycle (active → complete/failed), can be
+resumed with `--resume <taskId>`, and appear in `GET /tasks` like any other task.
+
+To find scheduled tasks specifically:
+```powershell
+Invoke-RestMethod "http://127.0.0.1:47777/tasks?take=200" |
+    Where-Object { $_.isScheduled -eq $true } |
+    Select-Object id, type, status, createdAt, correlationId
+```
+
 ---
 
 ## GitHub Operations

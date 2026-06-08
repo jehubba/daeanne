@@ -55,6 +55,7 @@ public static class SchedulerEndpoints
             Type          = AgentTaskType.DailySummary,
             Prompt        = prompt,
             CorrelationId = correlationId,
+            IsScheduled   = true,
             Status        = AgentTaskStatus.Pending,
             CreatedAt     = DateTime.UtcNow,
             UpdatedAt     = DateTime.UtcNow

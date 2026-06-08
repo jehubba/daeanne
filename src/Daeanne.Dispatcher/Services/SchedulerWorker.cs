@@ -82,7 +82,8 @@ public class SchedulerWorker(
         foreach (var job in dueJobs)
         {
             var correlationId = BuildCorrelationId(job);
-            await TryPostTaskAsync(job.Prompt, job.TaskType.ToString(), correlationId, dispatcherUrl, ct);
+            await TryPostTaskAsync(job.Prompt, job.TaskType.ToString(), correlationId, dispatcherUrl, ct,
+                scheduledJobId: job.Id);
 
             job.LastFiredAt = nowUtc;
             job.NextRunAt   = ComputeNextRun(job, DateTime.Now);
@@ -126,9 +127,17 @@ public class SchedulerWorker(
     }
 
     private async Task TryPostTaskAsync(
-        string prompt, string type, string? correlationId, string dispatcherUrl, CancellationToken ct)
+        string prompt, string type, string? correlationId, string dispatcherUrl, CancellationToken ct,
+        Guid? scheduledJobId = null)
     {
-        var body = JsonSerializer.Serialize(new { type, prompt, correlationId });
+        var body = JsonSerializer.Serialize(new
+        {
+            type,
+            prompt,
+            correlationId,
+            isScheduled   = true,
+            scheduledJobId = scheduledJobId?.ToString()
+        });
         try
         {
             using var http = new HttpClient();

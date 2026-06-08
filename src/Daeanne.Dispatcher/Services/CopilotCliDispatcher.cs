@@ -78,8 +78,8 @@ public class CopilotCliDispatcher(
         if (agentName is null)
             return new DispatchResult(false, null, $"No agent configured for task type '{task.Type}'.");
 
-        // Per-task working directory keeps outputs isolated; starts in active/ until completion
-        var workDir = TaskDirManager.ActivePath(_config.ResolvedWorkDir, task.Id);
+        // Per-task working directory keeps outputs isolated
+        var workDir = TaskDirManager.ActivePath(_config.ResolvedWorkDir, task.Id, task.IsScheduled);
         Directory.CreateDirectory(workDir);
 
         var prompt = BuildPrompt(task, workDir);

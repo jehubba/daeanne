@@ -47,6 +47,12 @@ using (var scope = app.Services.CreateScope())
     if (!cols.Contains("ReplyToGraphMessageId"))
         db.Database.ExecuteSqlRaw("ALTER TABLE OutboxEmails ADD COLUMN ReplyToGraphMessageId TEXT");
 
+    var taskCols = db.Database.SqlQueryRaw<string>("SELECT name FROM pragma_table_info('Tasks')").ToList();
+    if (!taskCols.Contains("IsScheduled"))
+        db.Database.ExecuteSqlRaw("ALTER TABLE Tasks ADD COLUMN IsScheduled INTEGER NOT NULL DEFAULT 0");
+    if (!taskCols.Contains("ScheduledJobId"))
+        db.Database.ExecuteSqlRaw("ALTER TABLE Tasks ADD COLUMN ScheduledJobId TEXT");
+
     // Add ScheduledJobs table if this is an existing DB (EnsureCreated won't alter existing schemas).
     db.Database.ExecuteSqlRaw("""
         CREATE TABLE IF NOT EXISTS ScheduledJobs (

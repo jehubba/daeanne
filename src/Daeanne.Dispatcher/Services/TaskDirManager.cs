@@ -19,25 +19,39 @@ public static class TaskDirManager
 {
     // ─── Path helpers ─────────────────────────────────────────────────────────
 
-    public static string ActivePath(string baseDir, Guid id) =>
-        Path.Combine(baseDir, "active", id.ToString());
+    /// <summary>
+    /// Layout:
+    ///   Non-scheduled:  {baseDir}/active/{id}/
+    ///                   {baseDir}/complete/{id}/
+    ///                   {baseDir}/failed/{id}/
+    ///                   {baseDir}/complete/archive/{id}/
+    ///   Scheduled:      {baseDir}/scheduled/active/{id}/
+    ///                   {baseDir}/scheduled/complete/{id}/
+    ///                   {baseDir}/scheduled/failed/{id}/
+    ///                   {baseDir}/scheduled/complete/archive/{id}/
+    /// </summary>
+    private static string Ns(string baseDir, bool isScheduled) =>
+        isScheduled ? Path.Combine(baseDir, "scheduled") : baseDir;
 
-    public static string CompletePath(string baseDir, Guid id) =>
-        Path.Combine(baseDir, "complete", id.ToString());
+    public static string ActivePath(string baseDir, Guid id, bool isScheduled = false) =>
+        Path.Combine(Ns(baseDir, isScheduled), "active", id.ToString());
 
-    public static string FailedPath(string baseDir, Guid id) =>
-        Path.Combine(baseDir, "failed", id.ToString());
+    public static string CompletePath(string baseDir, Guid id, bool isScheduled = false) =>
+        Path.Combine(Ns(baseDir, isScheduled), "complete", id.ToString());
 
-    public static string ArchivePath(string baseDir, Guid id) =>
-        Path.Combine(baseDir, "complete", "archive", id.ToString());
+    public static string FailedPath(string baseDir, Guid id, bool isScheduled = false) =>
+        Path.Combine(Ns(baseDir, isScheduled), "failed", id.ToString());
+
+    public static string ArchivePath(string baseDir, Guid id, bool isScheduled = false) =>
+        Path.Combine(Ns(baseDir, isScheduled), "complete", "archive", id.ToString());
 
     /// <summary>Returns the target directory path for a task with the given final status.</summary>
-    public static string PathForStatus(string baseDir, Guid id, AgentTaskStatus status) =>
+    public static string PathForStatus(string baseDir, Guid id, AgentTaskStatus status, bool isScheduled = false) =>
         status switch
         {
-            AgentTaskStatus.Succeeded                        => CompletePath(baseDir, id),
-            AgentTaskStatus.Failed or AgentTaskStatus.TimedOut => FailedPath(baseDir, id),
-            _                                                => ActivePath(baseDir, id)
+            AgentTaskStatus.Succeeded                          => CompletePath(baseDir, id, isScheduled),
+            AgentTaskStatus.Failed or AgentTaskStatus.TimedOut => FailedPath(baseDir, id, isScheduled),
+            _                                                  => ActivePath(baseDir, id, isScheduled)
         };
 
     /// <summary>
@@ -48,11 +62,18 @@ public static class TaskDirManager
     {
         var candidates = new[]
         {
+            // Non-scheduled paths
             ActivePath(baseDir, id),
             CompletePath(baseDir, id),
             FailedPath(baseDir, id),
             ArchivePath(baseDir, id),
-            Path.Combine(baseDir, id.ToString())    // legacy flat layout
+            // Scheduled paths
+            ActivePath(baseDir, id, isScheduled: true),
+            CompletePath(baseDir, id, isScheduled: true),
+            FailedPath(baseDir, id, isScheduled: true),
+            ArchivePath(baseDir, id, isScheduled: true),
+            // Legacy flat layout
+            Path.Combine(baseDir, id.ToString())
         };
 
         return candidates.FirstOrDefault(Directory.Exists);
@@ -66,9 +87,9 @@ public static class TaskDirManager
     /// Safe to call even if the source dir doesn't exist.
     /// </summary>
     public static string MoveToFinalLocation(string baseDir, Guid id, AgentTaskStatus finalStatus,
-        ILogger? logger = null)
+        bool isScheduled = false, ILogger? logger = null)
     {
-        var targetPath = PathForStatus(baseDir, id, finalStatus);
+        var targetPath = PathForStatus(baseDir, id, finalStatus, isScheduled);
         var sourcePath = FindTaskDir(baseDir, id);
 
         if (sourcePath is null || sourcePath == targetPath)
@@ -105,14 +126,21 @@ public static class TaskDirManager
 
     /// <summary>
     /// Moves completed task dirs older than <paramref name="archiveDays"/> into
-    /// complete/archive/. Runs on startup and daily.
+    /// complete/archive/. Handles both root and scheduled/ namespaces.
+    /// Runs on startup and daily.
     /// </summary>
     public static void ArchiveOld(string baseDir, int archiveDays = 30, ILogger? logger = null)
     {
-        var completePath = Path.Combine(baseDir, "complete");
+        ArchiveInNamespace(baseDir, archiveDays, logger);
+        ArchiveInNamespace(Path.Combine(baseDir, "scheduled"), archiveDays, logger);
+    }
+
+    private static void ArchiveInNamespace(string ns, int archiveDays, ILogger? logger)
+    {
+        var completePath = Path.Combine(ns, "complete");
         if (!Directory.Exists(completePath)) return;
 
-        var cutoff = DateTime.UtcNow.AddDays(-archiveDays);
+        var cutoff      = DateTime.UtcNow.AddDays(-archiveDays);
         var archiveRoot = Path.Combine(completePath, "archive");
 
         foreach (var dir in Directory.GetDirectories(completePath))

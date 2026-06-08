@@ -80,10 +80,12 @@ public static class TaskEndpoints
 
         var task = new AgentTask
         {
-            Type = request.Type,
-            Prompt = request.Prompt,
-            ContextJson = contextJson,
-            CorrelationId = request.CorrelationId
+            Type          = request.Type,
+            Prompt        = request.Prompt,
+            ContextJson   = contextJson,
+            CorrelationId = request.CorrelationId,
+            IsScheduled   = request.IsScheduled,
+            ScheduledJobId = request.ScheduledJobId
         };
 
         db.Tasks.Add(task);
@@ -115,7 +117,7 @@ public static class TaskEndpoints
 
         // Move the task directory to its final location and update workDir in resultJson
         var newWorkDir = TaskDirManager.MoveToFinalLocation(
-            dispatchConfig.Value.ResolvedWorkDir, id, newStatus);
+            dispatchConfig.Value.ResolvedWorkDir, id, newStatus, task.IsScheduled);
 
         task.Status      = newStatus;
         task.ResultJson  = TaskDirManager.UpdateResultJsonWorkDir(request.ResultJson, newWorkDir);
@@ -153,8 +155,8 @@ public static class TaskEndpoints
         if (!File.Exists(sessionPath))
             return Results.BadRequest($"No session.md in {workDir} — cannot resume (no prior session).");
 
-        // Move back to active/ and mark Running
-        var activeDir = TaskDirManager.ActivePath(dispatchConfig.Value.ResolvedWorkDir, id);
+        // Move back to active/ (or scheduled/active/) and mark Running
+        var activeDir = TaskDirManager.ActivePath(dispatchConfig.Value.ResolvedWorkDir, id, task.IsScheduled);
         if (!workDir.Equals(activeDir, StringComparison.OrdinalIgnoreCase))
         {
             Directory.CreateDirectory(Path.GetDirectoryName(activeDir)!);
@@ -176,7 +178,7 @@ public static class TaskEndpoints
 
             var finalStatus = result.Succeeded ? AgentTaskStatus.Succeeded : AgentTaskStatus.Failed;
             var newWorkDir  = TaskDirManager.MoveToFinalLocation(
-                dispatchConfig.Value.ResolvedWorkDir, id, finalStatus);
+                dispatchConfig.Value.ResolvedWorkDir, id, finalStatus, task.IsScheduled);
 
             using var scope = scopeFactory.CreateScope();
             var freshDb = scope.ServiceProvider.GetRequiredService<DispatcherDbContext>();

@@ -15,4 +15,13 @@ public class CreateTaskRequest
     /// as replyToGraphMessageId when queueing outbox emails.
     /// </summary>
     public string? GraphMessageId { get; set; }
+
+    /// <summary>
+    /// True when this task is created by the scheduler (built-in or dynamic cron).
+    /// Task directory will be placed under scheduled/ namespace.
+    /// </summary>
+    public bool IsScheduled { get; set; } = false;
+
+    /// <summary>ID of the ScheduledJob that spawned this task, if any.</summary>
+    public Guid? ScheduledJobId { get; set; }
 }

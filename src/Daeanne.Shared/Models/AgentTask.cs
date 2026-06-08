@@ -16,6 +16,18 @@ public class AgentTask
     /// <summary>Correlation ID from an external source (e.g. Service Bus message ID).</summary>
     public string? CorrelationId { get; set; }
 
+    /// <summary>
+    /// True when this task was created by the scheduler (built-in or dynamic cron).
+    /// Controls the task directory namespace: scheduled/ vs root.
+    /// </summary>
+    public bool IsScheduled { get; set; } = false;
+
+    /// <summary>
+    /// ID of the ScheduledJob that spawned this task, if any.
+    /// Null for built-in scheduler jobs and manually created tasks.
+    /// </summary>
+    public Guid? ScheduledJobId { get; set; }
+
     public string? ResultJson { get; set; }
     public string? Error { get; set; }
 
