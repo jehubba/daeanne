@@ -113,7 +113,7 @@ public class CopilotCliDispatcher(
         // output_path is the directory; the agent writes <output_path>/<task_id>-research.md
         return $"""
             ## Character
-            Core personality traits are static in the agent profile and must not be modified.
+            Character traits live in the static agent profile and are unchanged by this prompt.
 
             {preferences}
 

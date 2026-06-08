@@ -150,7 +150,7 @@ public sealed class PreferenceMemoryService(ILogger<PreferenceMemoryService> log
         }
 
         foreach (Match match in Regex.Matches(prompt,
-                     @"\bprefers?\s+(?<preferred>[^.]+?)\s+over\s+(?<alternative>[^.]+?)([.!,;]|$)",
+                     @"\bprefers?\s+(?<preferred>[^.,;\n]{1,80}?)\s+over\s+(?<alternative>[^.,;\n]{1,80}?)([.!,;]|$)",
                      RegexOptions.IgnoreCase))
         {
             var preferred = match.Groups["preferred"].Value.Trim();
@@ -226,7 +226,8 @@ public sealed class PreferenceMemoryService(ILogger<PreferenceMemoryService> log
             existing.Inferred == inferred)
         {
             if (inferred)
-                AddObservedPattern(document, "topicContext", key, value);
+                // Keep occurrence counts/timestamps current even when topicContext value is unchanged.
+                return AddObservedPattern(document, "topicContext", key, value);
             return false;
         }
 
@@ -269,6 +270,7 @@ public sealed class PreferenceMemoryService(ILogger<PreferenceMemoryService> log
         pattern.Occurrences++;
         pattern.LastObserved = now;
 
+        // Never auto-overwrite explicit topic context with inferred patterns.
         if (pattern.Occurrences >= 2 && document.TopicContext.TryGetValue(key, out var topic) && !topic.Inferred)
             return true;
 

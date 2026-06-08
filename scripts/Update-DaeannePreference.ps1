@@ -53,10 +53,12 @@ if (-not $prefs.ContainsKey("communication")) { $prefs["communication"] = @{} }
 if (-not $prefs.ContainsKey("workingStyle")) { $prefs["workingStyle"] = @{} }
 
 $changed = $false
+$observedPatternCategory = "topicContext"
 
 switch ($Category) {
     "Communication" {
         if ($Inferred) {
+            $observedPatternCategory = "communication"
             $Category = "ObservedPattern"
         } else {
             if ($Remove) {
@@ -69,6 +71,7 @@ switch ($Category) {
     }
     "WorkingStyle" {
         if ($Inferred) {
+            $observedPatternCategory = "workingStyle"
             $Category = "ObservedPattern"
         } else {
             if ($Remove) {
@@ -96,12 +99,12 @@ switch ($Category) {
 if ($Category -eq "ObservedPattern") {
     $patterns = @($prefs.observedPatterns)
     $existing = $patterns | Where-Object {
-        $_.category -eq "topicContext" -and $_.key -eq $Key -and $_.value -eq $Value
+        $_.category -eq $observedPatternCategory -and $_.key -eq $Key -and $_.value -eq $Value
     } | Select-Object -First 1
 
     if ($null -eq $existing) {
         $patterns += @{
-            category = "topicContext"
+            category = $observedPatternCategory
             key = $Key
             value = $Value
             inferred = $true
