@@ -54,6 +54,15 @@ public static class TaskEndpoints
         if (string.IsNullOrWhiteSpace(request.Prompt))
             return Results.BadRequest("Prompt is required.");
 
+        // Idempotency: if a non-terminal task with this correlationId already exists, return it
+        if (!string.IsNullOrWhiteSpace(request.CorrelationId))
+        {
+            var existing = await db.Tasks.FirstOrDefaultAsync(t =>
+                t.CorrelationId == request.CorrelationId && !AgentTask.TerminalStatuses.Contains(t.Status));
+            if (existing is not null)
+                return Results.Conflict(existing);
+        }
+
         var task = new AgentTask
         {
             Type = request.Type,

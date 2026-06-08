@@ -173,6 +173,13 @@ public class BridgeWorker : BackgroundService
             {
                 await ProcessPendingEmailsAsync(sender, dispatcherUrl, ct);
             }
+            catch (HttpRequestException ex)
+                when (ex.InnerException is System.Net.Sockets.SocketException se &&
+                      se.SocketErrorCode == System.Net.Sockets.SocketError.ConnectionRefused)
+            {
+                _logger.LogWarning("Outbound: Dispatcher unreachable — will retry in {S}s.",
+                    pollInterval.TotalSeconds);
+            }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogError(ex, "Outbound: error in poll cycle.");

@@ -110,22 +110,44 @@ public class DispatchWorker(
         }
     }
 
-    /// <summary>On startup, re-enqueue any tasks that were interrupted by a previous shutdown.</summary>
+    /// <summary>
+    /// On startup: re-enqueue Pending tasks (never started), and mark interrupted
+    /// Running tasks as Failed (agent died mid-run — state is unknown, safer to fail).
+    /// </summary>
     private async Task RehydrateAsync(CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<DispatcherDbContext>();
 
-        var stalledIds = await db.Tasks
-            .Where(t => t.Status == AgentTaskStatus.Pending || t.Status == AgentTaskStatus.Running)
+        // Re-queue tasks that never started
+        var pendingIds = await db.Tasks
+            .Where(t => t.Status == AgentTaskStatus.Pending)
             .Select(t => t.Id)
             .ToListAsync(ct);
 
-        foreach (var id in stalledIds)
+        foreach (var id in pendingIds)
             await queue.Writer.WriteAsync(id, ct);
 
-        if (stalledIds.Count > 0)
-            logger.LogInformation("Rehydrated {Count} stalled task(s) from DB.", stalledIds.Count);
+        // Mark interrupted Running tasks as Failed
+        var interrupted = await db.Tasks
+            .Where(t => t.Status == AgentTaskStatus.Running)
+            .ToListAsync(ct);
+
+        foreach (var t in interrupted)
+        {
+            t.Status = AgentTaskStatus.Failed;
+            t.Error  = "Dispatcher restarted while task was Running.";
+            t.CompletedAt = DateTime.UtcNow;
+            t.UpdatedAt   = DateTime.UtcNow;
+        }
+
+        if (interrupted.Count > 0)
+            await db.SaveChangesAsync(ct);
+
+        if (pendingIds.Count > 0 || interrupted.Count > 0)
+            logger.LogInformation(
+                "Rehydrated: {Pending} pending re-queued, {Interrupted} running → Failed.",
+                pendingIds.Count, interrupted.Count);
     }
 
     private async Task TryMarkFailedAsync(Guid taskId, string error, CancellationToken ct)

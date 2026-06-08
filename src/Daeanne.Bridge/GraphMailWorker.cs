@@ -69,6 +69,8 @@ public class GraphMailWorker(
         while (!ct.IsCancellationRequested)
         {
             try   { await PollInboxAsync(clientId, tokenState, mailAddress, dispatcherUrl, ct); }
+            catch (HttpRequestException ex) when (IsConnectionRefused(ex))
+            { logger.LogWarning("GraphMailWorker: Dispatcher unreachable (inbound) — will retry in {S}s", pollSeconds); }
             catch (Exception ex) when (ex is not OperationCanceledException)
             { logger.LogError(ex, "GraphMailWorker: unhandled error in inbound poll cycle"); }
 
@@ -83,12 +85,18 @@ public class GraphMailWorker(
         while (!ct.IsCancellationRequested)
         {
             try   { await SendPendingEmailsAsync(clientId, tokenState, dispatcherUrl, ct); }
+            catch (HttpRequestException ex) when (IsConnectionRefused(ex))
+            { logger.LogWarning("GraphMailWorker: Dispatcher unreachable (outbound) — will retry in {S}s", pollSeconds); }
             catch (Exception ex) when (ex is not OperationCanceledException)
             { logger.LogError(ex, "GraphMailWorker: unhandled error in outbound send cycle"); }
 
             await Task.Delay(TimeSpan.FromSeconds(pollSeconds), ct);
         }
     }
+
+    private static bool IsConnectionRefused(HttpRequestException ex) =>
+        ex.InnerException is System.Net.Sockets.SocketException se &&
+        se.SocketErrorCode == System.Net.Sockets.SocketError.ConnectionRefused;
 
     // ─── OUTBOUND: Dispatcher outbox → Graph sendMail ─────────────────────────
 
@@ -258,6 +266,13 @@ public class GraphMailWorker(
                 Timestamp = received
             };
 
+            if (ShouldIgnore(from, subject, config))
+            {
+                logger.LogInformation("GraphMailWorker: ignoring automated email from {From} re: {Subject}", from, subject);
+                await MarkReadAsync(graphHttp, graphId, ct);
+                continue;
+            }
+
             var prompt = BuildEmailPrompt(bridgeMsg);
             var taskBody = JsonSerializer.Serialize(new
             {
@@ -271,9 +286,11 @@ public class GraphMailWorker(
                 new StringContent(taskBody, Encoding.UTF8, "application/json"),
                 ct);
 
-            if (taskResp.IsSuccessStatusCode)
+            if (taskResp.IsSuccessStatusCode || taskResp.StatusCode == System.Net.HttpStatusCode.Conflict)
             {
-                logger.LogInformation("GraphMailWorker: task created — from {From} re: {Subject}", from, subject);
+                // 201 = created, 409 = duplicate (correlationId already has a non-terminal task)
+                var action = taskResp.IsSuccessStatusCode ? "task created" : "task already exists";
+                logger.LogInformation("GraphMailWorker: {Action} — from {From} re: {Subject}", action, from, subject);
                 await MarkReadAsync(graphHttp, graphId, ct);
             }
             else
@@ -330,6 +347,21 @@ public class GraphMailWorker(
         {
             logger.LogWarning(ex, "GraphMailWorker: could not mark message {Id} as read", messageId);
         }
+    }
+
+    private static bool ShouldIgnore(string from, string subject, IConfiguration config)
+    {
+        // Configurable denylist: Graph:IgnoredSenders (comma-separated domain or address suffixes)
+        var ignored = config["Graph:IgnoredSenders"]
+            ?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            ?? [];
+
+        foreach (var pattern in ignored)
+        {
+            if (from.EndsWith(pattern, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 
     private static string BuildEmailPrompt(BridgeEmailMessage msg) =>
