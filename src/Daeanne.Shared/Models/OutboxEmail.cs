@@ -11,4 +11,11 @@ public class OutboxEmail
     public DateTime? SentAt { get; set; }
     public string? Error { get; set; }
     public string? CorrelationId { get; set; }
+
+    /// <summary>
+    /// Graph message ID of the email being replied to.
+    /// When set, the Bridge uses POST /me/messages/{id}/reply instead of sendMail,
+    /// keeping the response in the same email thread.
+    /// </summary>
+    public string? ReplyToGraphMessageId { get; set; }
 }

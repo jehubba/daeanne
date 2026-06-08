@@ -359,12 +359,23 @@ For anything else (third-party outreach, booking on behalf of users, contacting 
 
 ### Sending email
 
+**Always use `replyToGraphMessageId` when responding to an inbound email.** This keeps your replies in the same email thread instead of creating new conversations. The `graphMessageId` is provided in your task context.
+
 ```powershell
+# Replying to an inbound email (threaded — always preferred for responses)
+$email = @{
+    to                   = "recipient@example.com"
+    subject              = "Re: Original Subject"
+    body                 = "..."
+    correlationId        = "<original message internet ID>"
+    replyToGraphMessageId = "<graphMessageId from your task context>"
+} | ConvertTo-Json
+
+# New email not replying to anything (use only for proactive outreach)
 $email = @{
     to      = "recipient@example.com"
-    subject = "Re: Original Subject"
+    subject = "Subject"
     body    = "..."
-    correlationId = "<original message internet ID, if replying>"
 } | ConvertTo-Json
 
 $outbox = Invoke-RestMethod "http://127.0.0.1:47777/outbox/email" `

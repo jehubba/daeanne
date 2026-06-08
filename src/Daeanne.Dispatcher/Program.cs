@@ -37,9 +37,12 @@ var app = builder.Build();
 // deleting the generated migration and regenerating against the live schema.
 using (var scope = app.Services.CreateScope())
 {
-    scope.ServiceProvider
-        .GetRequiredService<DispatcherDbContext>()
-        .Database.EnsureCreated();
+    var db = scope.ServiceProvider.GetRequiredService<DispatcherDbContext>();
+    db.Database.EnsureCreated();
+
+    // Idempotent schema evolution: add new columns that EnsureCreated won't add to existing DBs.
+    try { db.Database.ExecuteSqlRaw("ALTER TABLE OutboxEmails ADD COLUMN ReplyToGraphMessageId TEXT"); }
+    catch { /* column already exists */ }
 }
 
 app.MapGet("/health", () => Results.Ok(new

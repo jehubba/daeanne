@@ -59,7 +59,8 @@ public static class OutboxEndpoints
             To = request.To,
             Subject = request.Subject,
             Body = request.Body,
-            CorrelationId = request.CorrelationId
+            CorrelationId = request.CorrelationId,
+            ReplyToGraphMessageId = request.ReplyToGraphMessageId
         };
 
         db.OutboxEmails.Add(email);

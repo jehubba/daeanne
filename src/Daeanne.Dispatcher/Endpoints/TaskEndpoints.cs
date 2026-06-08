@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Threading.Channels;
 using Daeanne.Dispatcher.Data;
 using Daeanne.Dispatcher.Services;
@@ -66,11 +67,22 @@ public static class TaskEndpoints
                 return Results.Conflict(existing);
         }
 
+        // Merge GraphMessageId into ContextJson so the agent sees it in its prompt
+        var contextJson = request.ContextJson;
+        if (!string.IsNullOrWhiteSpace(request.GraphMessageId))
+        {
+            var ctx = string.IsNullOrWhiteSpace(contextJson)
+                ? new Dictionary<string, string?>()
+                : JsonSerializer.Deserialize<Dictionary<string, string?>>(contextJson) ?? new();
+            ctx["graphMessageId"] = request.GraphMessageId;
+            contextJson = JsonSerializer.Serialize(ctx);
+        }
+
         var task = new AgentTask
         {
             Type = request.Type,
             Prompt = request.Prompt,
-            ContextJson = request.ContextJson,
+            ContextJson = contextJson,
             CorrelationId = request.CorrelationId
         };
 

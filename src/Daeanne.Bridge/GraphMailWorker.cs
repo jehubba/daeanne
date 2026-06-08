@@ -146,23 +146,39 @@ public class GraphMailWorker(
 
             try
             {
-                var payload = JsonSerializer.Serialize(new
-                {
-                    message = new
-                    {
-                        subject = email.Subject,
-                        body    = new { contentType = "Text", content = email.Body ?? "" },
-                        toRecipients = new[]
-                        {
-                            new { emailAddress = new { address = email.To } }
-                        }
-                    },
-                    saveToSentItems = true
-                });
+                HttpResponseMessage sendResp;
 
-                var sendResp = await graphHttp.PostAsync(
-                    $"{GraphBase}/me/sendMail",
-                    new StringContent(payload, Encoding.UTF8, "application/json"), ct);
+                if (!string.IsNullOrWhiteSpace(email.ReplyToGraphMessageId))
+                {
+                    // Threaded reply — stays in the same email conversation
+                    var replyPayload = JsonSerializer.Serialize(new
+                    {
+                        comment = email.Body ?? ""
+                    });
+                    sendResp = await graphHttp.PostAsync(
+                        $"{GraphBase}/me/messages/{Uri.EscapeDataString(email.ReplyToGraphMessageId)}/reply",
+                        new StringContent(replyPayload, Encoding.UTF8, "application/json"), ct);
+                }
+                else
+                {
+                    // New email thread
+                    var payload = JsonSerializer.Serialize(new
+                    {
+                        message = new
+                        {
+                            subject = email.Subject,
+                            body    = new { contentType = "Text", content = email.Body ?? "" },
+                            toRecipients = new[]
+                            {
+                                new { emailAddress = new { address = email.To } }
+                            }
+                        },
+                        saveToSentItems = true
+                    });
+                    sendResp = await graphHttp.PostAsync(
+                        $"{GraphBase}/me/sendMail",
+                        new StringContent(payload, Encoding.UTF8, "application/json"), ct);
+                }
 
                 if (sendResp.IsSuccessStatusCode)
                 {
@@ -297,7 +313,8 @@ public class GraphMailWorker(
             {
                 type = "Email",
                 prompt,
-                correlationId = bridgeMsg.AcsMessageId
+                correlationId = bridgeMsg.AcsMessageId,
+                graphMessageId = graphId   // used by Daeanne to send threaded replies
             });
 
             var taskResp = await dispatchHttp.PostAsync(
