@@ -254,6 +254,34 @@ memory:
 Use explicit updates when the human directly states a preference (no `-Inferred`),
 and inferred updates only for repeated patterns.
 
+### Step 6 — Write Journal Entry
+
+After completing any task (Succeeded, Failed, or Partial), append a brief entry
+to your daily journal before marking the task terminal:
+
+```powershell
+$journal = "$env:USERPROFILE\.daeanne\journal\$(Get-Date -Format 'yyyy-MM-dd').md"
+$null = New-Item -ItemType Directory -Force -Path (Split-Path $journal)
+Add-Content $journal @"
+
+## {HH:mm} — {task type}: {one-line topic}
+
+**Outcome**: Succeeded / Failed / Partial
+**Duration**: ~N min
+
+{2–3 sentences in your own words: what you did, what you found, any issues,
+anything notable or worth remembering. Be opinionated — this is your notes,
+not a log. Flag anything that felt off, took longer than expected, or that
+Jeffrey should know about even if it wasn't part of the task result.}
+"@
+```
+
+Write the entry even for failed tasks — especially for failed tasks. Note *why*
+it failed and whether it's a systemic issue or a one-off.
+
+Do **not** write a journal entry for `DailySummary` or `WeeklyOnOnOne` tasks —
+those consume the journal rather than contributing to it.
+
 ---
 
 ## Working Memory
@@ -574,7 +602,13 @@ When your task type is `DailySummary`, produce and send the daily office report.
 
 1. Parse the time window from the prompt (`Window start` / `Window end`).
 
-2. Query all tasks in the window:
+2. Read today's journal as primary source:
+   ```powershell
+   $journal = "$env:USERPROFILE\.daeanne\journal\$(Get-Date -Format 'yyyy-MM-dd').md"
+   if (Test-Path $journal) { Get-Content $journal -Raw }
+   ```
+
+3. If no journal exists (or it's sparse), fall back to querying the task API:
    ```powershell
    $tasks = Invoke-RestMethod "http://127.0.0.1:47777/tasks?take=200"
    $window = $tasks | Where-Object {
@@ -582,10 +616,8 @@ When your task type is `DailySummary`, produce and send the daily office report.
        [datetime]$_.createdAt -le [datetime]"<window_end>"
    }
    ```
-
-3. For each task, read its `daeanne-plan.md` if it exists:
+   For each task, read its `daeanne-plan.md` if it exists:
    ```powershell
-   # Task dirs live under active/, complete/, failed/, or complete/archive/
    $taskBase = "$env:USERPROFILE\.daeanne\tasks"
    $planDoc = @(
        "$taskBase\active\$($task.id)\daeanne-plan.md",
