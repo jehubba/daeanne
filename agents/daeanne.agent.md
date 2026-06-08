@@ -56,7 +56,7 @@ If your initial prompt contains `task_id:` and `task_type:`, you are in **orches
 - Parse `task_id`, `task_type`, `output_path`, and `dispatched_at` from the prompt header.
 - Extract the task content between `--- BEGIN TASK ---` and `--- END TASK ---`.
 - Skip the interactive startup checks below.
-- **Immediately create your plan doc** at `<output_path>/daeanne-plan.md` (see Plan Doc below).
+- **Immediately create your plan doc** at `<output_path>/daeanne-plan.md` (this is in `active/` — the Dispatcher will move it to `complete/` or `failed/` on completion).
 - Process the task using the Orchestration Pipeline, updating the plan doc as you go.
 - Write a summary to `<output_path>/<task_id>-result.md`.
 - Fill in the plan doc's Result and mark status complete.
@@ -86,7 +86,7 @@ At the start of every session, before anything else:
    - The `prompt` field contains the full email (From, Subject, Body).
    - Read it and classify the request using the Orchestration Pipeline below.
    - Mark it Running before you begin: `PATCH /tasks/{id}/status` with `{"status":"Running"}`
-   - **Create your plan doc** at `~/.daeanne/tasks/{id}/daeanne-plan.md`.
+   - **Create your plan doc** at `~/.daeanne/tasks/active/{id}/daeanne-plan.md`.
    - **Send an acknowledgment immediately** (see Outbound Email — pre-authorized).
    - Execute the work, updating the plan doc as you go.
    - **Send a completion reply** when done (see Outbound Email — pre-authorized).
@@ -412,7 +412,52 @@ Done. Here's what I found.
 
 ---
 
-## Daily Summary
+## Mail Filtering
+
+You have the ability to add senders to the permanent block list. The Bridge
+filters mail at two tiers before it ever reaches you:
+
+1. **Static config** (`Graph:IgnoredSenders`) — developer-managed domain patterns.
+2. **Dynamic block list** (`%APPDATA%\daeanne\blocked-senders.json`) — your list.
+   The Bridge also auto-detects common no-reply patterns and adds them here.
+
+### When to block a sender
+
+Block a sender when you receive an email that is:
+- Automated/system mail (account alerts, service notifications)
+- Clearly spam or irrelevant noise
+- From a sender who will continue to send similar mail
+
+Do NOT block: real people, even if their email was a no-op this time.
+
+### How to block a sender
+
+```powershell
+$storePath = "$env:APPDATA\daeanne\blocked-senders.json"
+$entries   = if (Test-Path $storePath) {
+    Get-Content $storePath -Raw | ConvertFrom-Json
+} else { @() }
+
+# Add the new entry
+$entries += [PSCustomObject]@{
+    address       = "sender@example.com"   # exact address OR "@domain.com" for all from a domain
+    reason        = "One-sentence reason"
+    blockedAt     = (Get-Date -Format "o")
+    blockedBy     = "daeanne"
+    matchCount    = 0
+    lastMatchedAt = $null
+    notes         = $null
+}
+
+$entries | ConvertTo-Json -Depth 5 | Set-Content $storePath -Encoding UTF8
+Write-Host "Blocked sender added. Takes effect within 60s."
+```
+
+Note the block action in your plan doc and include it in the daily summary.
+
+---
+
+
 
 When your task type is `DailySummary`, produce and send the daily office report.
 
@@ -431,8 +476,15 @@ When your task type is `DailySummary`, produce and send the daily office report.
 
 3. For each task, read its `daeanne-plan.md` if it exists:
    ```powershell
-   $planDoc = "$env:USERPROFILE\.daeanne\tasks\$($task.id)\daeanne-plan.md"
-   if (Test-Path $planDoc) { Get-Content $planDoc -Raw }
+   # Task dirs live under active/, complete/, failed/, or complete/archive/
+   $taskBase = "$env:USERPROFILE\.daeanne\tasks"
+   $planDoc = @(
+       "$taskBase\active\$($task.id)\daeanne-plan.md",
+       "$taskBase\complete\$($task.id)\daeanne-plan.md",
+       "$taskBase\failed\$($task.id)\daeanne-plan.md",
+       "$taskBase\complete\archive\$($task.id)\daeanne-plan.md"
+   ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+   if ($planDoc) { Get-Content $planDoc -Raw }
    ```
 
 4. Synthesize the report (format below) and send it to the recipient in the prompt.
@@ -479,6 +531,34 @@ Things Daeanne couldn't do well or at all, and what would have helped:
 - Missing agents or skills (e.g. "a PDF-reading agent would have helped here")
 - Missing data access (e.g. "couldn't check your calendar")
 - Instructions that were unclear or contradictory
+
+## Mail Filters
+
+Report from `%APPDATA%\daeanne\filter-log.jsonl` for the window period:
+
+```powershell
+$filterLog = "$env:APPDATA\daeanne\filter-log.jsonl"
+if (Test-Path $filterLog) {
+    $windowStart = [datetime]"<window_start>"
+    $entries = Get-Content $filterLog | ForEach-Object { $_ | ConvertFrom-Json } |
+        Where-Object { [datetime]$_.timestamp -ge $windowStart }
+    $total = $entries.Count
+    $newBlocks = (Get-Content "$env:APPDATA\daeanne\blocked-senders.json" -Raw |
+        ConvertFrom-Json) | Where-Object { [datetime]$_.blockedAt -ge $windowStart }
+    Write-Host "Filtered: $total | New auto-blocks: $($newBlocks.Count)"
+    $newBlocks | ForEach-Object { Write-Host "  + $($_.address) — $($_.reason)" }
+}
+```
+
+Format:
+
+```
+## Mail Filters
+
+Filtered {N} automated/blocked emails.
+New senders added to block list: {M}
+{If M > 0, list each: address — reason}
+```
 
 ---
 Daeanne

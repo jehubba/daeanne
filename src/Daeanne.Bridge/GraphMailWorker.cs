@@ -57,18 +57,20 @@ public class GraphMailWorker(
         logger.LogInformation("GraphMailWorker starting. Inbound every {In}s, outbound every {Out}s for {Mail}",
             inboundPollSeconds, outboundPollSeconds, mailAddress);
 
+        var blockedSenders = new BlockedSendersStore(reloadEveryNPolls: 10);
+
         await Task.WhenAll(
-            RunInboundLoopAsync(clientId, tokenState, mailAddress, dispatcherUrl, inboundPollSeconds, stoppingToken),
+            RunInboundLoopAsync(clientId, tokenState, mailAddress, dispatcherUrl, inboundPollSeconds, blockedSenders, stoppingToken),
             RunOutboundLoopAsync(clientId, tokenState, dispatcherUrl, outboundPollSeconds, stoppingToken));
     }
 
     private async Task RunInboundLoopAsync(
         string clientId, TokenState tokenState, string mailAddress,
-        string dispatcherUrl, int pollSeconds, CancellationToken ct)
+        string dispatcherUrl, int pollSeconds, BlockedSendersStore blockedSenders, CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
-            try   { await PollInboxAsync(clientId, tokenState, mailAddress, dispatcherUrl, ct); }
+            try   { await PollInboxAsync(clientId, tokenState, mailAddress, dispatcherUrl, blockedSenders, ct); }
             catch (HttpRequestException ex) when (IsConnectionRefused(ex))
             { logger.LogWarning("GraphMailWorker: Dispatcher unreachable (inbound) — will retry in {S}s", pollSeconds); }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -197,6 +199,7 @@ public class GraphMailWorker(
         TokenState tokenState,
         string mailAddress,
         string dispatcherUrl,
+        BlockedSendersStore blockedSenders,
         CancellationToken ct)
     {
         string accessToken;
@@ -266,9 +269,21 @@ public class GraphMailWorker(
                 Timestamp = received
             };
 
-            if (ShouldIgnore(from, subject, config))
+            // Tier 1: static config denylist (developer-set domain/address patterns)
+            if (ShouldIgnoreByConfig(from, config))
             {
-                logger.LogInformation("GraphMailWorker: ignoring automated email from {From} re: {Subject}", from, subject);
+                logger.LogInformation("GraphMailWorker: filtered (config) email from {From} re: {Subject}", from, subject);
+                blockedSenders.LogFiltered(from, "config-pattern");
+                await MarkReadAsync(graphHttp, graphId, ct);
+                continue;
+            }
+
+            // Tier 2: dynamic blocked-senders.json (Daeanne-managed + auto-detected)
+            var (blocked, reason) = blockedSenders.Check(from);
+            if (blocked)
+            {
+                logger.LogInformation("GraphMailWorker: filtered (blocked-senders) email from {From} — {Reason}", from, reason);
+                blockedSenders.LogFiltered(from, reason);
                 await MarkReadAsync(graphHttp, graphId, ct);
                 continue;
             }
@@ -349,9 +364,8 @@ public class GraphMailWorker(
         }
     }
 
-    private static bool ShouldIgnore(string from, string subject, IConfiguration config)
+    private static bool ShouldIgnoreByConfig(string from, IConfiguration config)
     {
-        // Configurable denylist: Graph:IgnoredSenders (comma-separated domain or address suffixes)
         var ignored = config["Graph:IgnoredSenders"]
             ?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             ?? [];
