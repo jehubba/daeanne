@@ -228,13 +228,16 @@ public class CopilotCliDispatcher(
 
         // Tee-Object writes output to agent-output.txt AND shows it in the window.
         // Read-Host keeps the window open after the agent exits so you can review.
-        var script = $"""
-            Set-Location '{workDir.Replace("'", "''")}'
-            $prompt = Get-Content '{promptFile.Replace("'", "''")}' -Raw
-            copilot --agent '{agentName}' -p $prompt --silent --no-ask-user --allow-all-tools --allow-all-paths --allow-all-urls --share '{sessionMd.Replace("'", "''")}'  2>&1 | Tee-Object -FilePath '{outputFile.Replace("'", "''")}'
+        var script = $$"""
+            Set-Location '{{workDir.Replace("'", "''")}}'
+            $prompt = Get-Content '{{promptFile.Replace("'", "''")}}' -Raw
+            copilot --agent '{{agentName}}' -p $prompt --silent --no-ask-user --allow-all-tools --allow-all-paths --allow-all-urls --share '{{sessionMd.Replace("'", "''")}}'  2>&1 | Tee-Object -FilePath '{{outputFile.Replace("'", "''")}}'
+            $ec = $LASTEXITCODE
             Write-Host ""
-            Write-Host "--- Agent finished. Press Enter to close this window. ---"
-            Read-Host
+            if ($ec -ne 0) {
+                Write-Host "--- Agent exited with code $ec. Press Enter to close. ---"
+                Read-Host
+            }
             """;
 
         var scriptFile = Path.Combine(workDir, "run.ps1");
@@ -258,13 +261,16 @@ public class CopilotCliDispatcher(
         var sessionMd  = Path.Combine(workDir, "session.md");
         File.WriteAllText(promptFile, prompt);
 
-        var script = $"""
-            Set-Location '{workDir.Replace("'", "''")}'
-            $prompt = Get-Content '{promptFile.Replace("'", "''")}' -Raw
-            copilot --resume '{sessionId}' -p $prompt --silent --no-ask-user --allow-all-tools --allow-all-paths --allow-all-urls --share '{sessionMd.Replace("'", "''")}'  2>&1 | Tee-Object -FilePath '{outputFile.Replace("'", "''")}'
+        var script = $$"""
+            Set-Location '{{workDir.Replace("'", "''")}}'
+            $prompt = Get-Content '{{promptFile.Replace("'", "''")}}' -Raw
+            copilot --resume '{{sessionId}}' -p $prompt --silent --no-ask-user --allow-all-tools --allow-all-paths --allow-all-urls --share '{{sessionMd.Replace("'", "''")}}'  2>&1 | Tee-Object -FilePath '{{outputFile.Replace("'", "''")}}'
+            $ec = $LASTEXITCODE
             Write-Host ""
-            Write-Host "--- Resumed session finished. Press Enter to close. ---"
-            Read-Host
+            if ($ec -ne 0) {
+                Write-Host "--- Resumed session exited with code $ec. Press Enter to close. ---"
+                Read-Host
+            }
             """;
 
         var scriptFile = Path.Combine(workDir, "resume.ps1");

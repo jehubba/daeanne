@@ -65,7 +65,8 @@ public static class TaskDirManager
     /// Returns the new path (whether or not a move was needed or possible).
     /// Safe to call even if the source dir doesn't exist.
     /// </summary>
-    public static string MoveToFinalLocation(string baseDir, Guid id, AgentTaskStatus finalStatus)
+    public static string MoveToFinalLocation(string baseDir, Guid id, AgentTaskStatus finalStatus,
+        ILogger? logger = null)
     {
         var targetPath = PathForStatus(baseDir, id, finalStatus);
         var sourcePath = FindTaskDir(baseDir, id);
@@ -73,12 +74,29 @@ public static class TaskDirManager
         if (sourcePath is null || sourcePath == targetPath)
             return targetPath;
 
-        try
+        Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
+
+        // Retry a few times — on Windows the agent process may still hold the dir
+        // as its working directory immediately after posting its result.
+        for (int attempt = 1; attempt <= 4; attempt++)
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
-            Directory.Move(sourcePath, targetPath);
+            try
+            {
+                Directory.Move(sourcePath, targetPath);
+                return targetPath;
+            }
+            catch (Exception ex) when (attempt < 4)
+            {
+                logger?.LogWarning("TaskDirManager: move attempt {Attempt} failed for {Id}: {Msg} — retrying",
+                    attempt, id, ex.Message);
+                Thread.Sleep(attempt * 500);
+            }
+            catch (Exception ex)
+            {
+                logger?.LogError("TaskDirManager: could not move {Id} to {Target} after 4 attempts: {Msg}",
+                    id, targetPath, ex.Message);
+            }
         }
-        catch { /* non-fatal — dir stays wherever it is */ }
 
         return targetPath;
     }

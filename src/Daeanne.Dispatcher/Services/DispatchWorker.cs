@@ -103,7 +103,7 @@ public class DispatchWorker(
                 {
                     // Move dir first, then store the updated workDir in resultJson
                     var newWorkDir = TaskDirManager.MoveToFinalLocation(
-                        _config.ResolvedWorkDir, taskId, finalStatus);
+                        _config.ResolvedWorkDir, taskId, finalStatus, logger);
 
                     t.Status     = finalStatus;
                     t.ResultJson = TaskDirManager.UpdateResultJsonWorkDir(result.ResultJson, newWorkDir);
@@ -161,7 +161,7 @@ public class DispatchWorker(
             if (resumeResult is not null)
             {
                 var finalStatus = resumeResult.Succeeded ? AgentTaskStatus.Succeeded : AgentTaskStatus.Failed;
-                var newWorkDir  = TaskDirManager.MoveToFinalLocation(_config.ResolvedWorkDir, t.Id, finalStatus);
+                var newWorkDir  = TaskDirManager.MoveToFinalLocation(_config.ResolvedWorkDir, t.Id, finalStatus, logger);
                 t.Status     = finalStatus;
                 t.ResultJson = TaskDirManager.UpdateResultJsonWorkDir(resumeResult.ResultJson, newWorkDir);
                 t.Error      = resumeResult.Error;
@@ -172,7 +172,7 @@ public class DispatchWorker(
             else
             {
                 // No session.md — can't resume, mark Failed and move dir
-                var newWorkDir = TaskDirManager.MoveToFinalLocation(_config.ResolvedWorkDir, t.Id, AgentTaskStatus.Failed);
+                var newWorkDir = TaskDirManager.MoveToFinalLocation(_config.ResolvedWorkDir, t.Id, AgentTaskStatus.Failed, logger);
                 t.Status      = AgentTaskStatus.Failed;
                 t.Error       = "Dispatcher restarted while task was Running; no session found for resume.";
                 t.CompletedAt = DateTime.UtcNow;
