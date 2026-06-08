@@ -5,8 +5,13 @@ using Daeanne.Shared.Models;
 namespace Daeanne.Bridge;
 
 /// <summary>
-/// Polls daeanne-srs@outlook.com via Microsoft Graph every minute for unread messages.
-/// New messages are posted directly to the local Dispatcher as Email tasks — no Service Bus hop needed.
+/// Handles all Microsoft Graph mail operations for daeanne-srs@outlook.com:
+///
+/// Inbound: polls inbox every 60s for unread messages → posts to Dispatcher as Email tasks.
+/// Outbound: polls Dispatcher outbox every 10s → sends via Graph sendMail API.
+///
+/// Using Graph for both directions keeps everything in one account, replies appear in-thread,
+/// and eliminates the ACS / Service Bus dependency for email.
 ///
 /// Refresh token is loaded from Graph:RefreshToken config (user secrets), then persisted
 /// to %APPDATA%\daeanne\graph-token.json so rotations survive restarts automatically.
@@ -29,7 +34,8 @@ public class GraphMailWorker(
     {
         var clientId = config["Graph:ClientId"];
         var mailAddress = config["Graph:MailAddress"] ?? "daeanne-srs@outlook.com";
-        var pollSeconds = int.TryParse(config["Graph:PollIntervalSeconds"], out var s) ? s : 60;
+        var inboundPollSeconds  = int.TryParse(config["Graph:PollIntervalSeconds"], out var s) ? s : 60;
+        var outboundPollSeconds = int.TryParse(config["Graph:OutboundPollIntervalSeconds"], out var o) ? o : 10;
         var dispatcherUrl = config["Bridge:DispatcherUrl"] ?? "http://127.0.0.1:47777";
 
         if (string.IsNullOrWhiteSpace(clientId))
@@ -48,23 +54,135 @@ public class GraphMailWorker(
             return;
         }
 
-        logger.LogInformation("GraphMailWorker starting. Polling every {Interval}s for {Mail}",
-            pollSeconds, mailAddress);
+        logger.LogInformation("GraphMailWorker starting. Inbound every {In}s, outbound every {Out}s for {Mail}",
+            inboundPollSeconds, outboundPollSeconds, mailAddress);
 
-        while (!stoppingToken.IsCancellationRequested)
+        await Task.WhenAll(
+            RunInboundLoopAsync(clientId, tokenState, mailAddress, dispatcherUrl, inboundPollSeconds, stoppingToken),
+            RunOutboundLoopAsync(clientId, tokenState, dispatcherUrl, outboundPollSeconds, stoppingToken));
+    }
+
+    private async Task RunInboundLoopAsync(
+        string clientId, TokenState tokenState, string mailAddress,
+        string dispatcherUrl, int pollSeconds, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
         {
-            try
-            {
-                await PollInboxAsync(clientId, tokenState, mailAddress, dispatcherUrl, stoppingToken);
-            }
+            try   { await PollInboxAsync(clientId, tokenState, mailAddress, dispatcherUrl, ct); }
             catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                logger.LogError(ex, "GraphMailWorker: unhandled error in poll cycle");
-            }
+            { logger.LogError(ex, "GraphMailWorker: unhandled error in inbound poll cycle"); }
 
-            await Task.Delay(TimeSpan.FromSeconds(pollSeconds), stoppingToken);
+            await Task.Delay(TimeSpan.FromSeconds(pollSeconds), ct);
         }
     }
+
+    private async Task RunOutboundLoopAsync(
+        string clientId, TokenState tokenState,
+        string dispatcherUrl, int pollSeconds, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try   { await SendPendingEmailsAsync(clientId, tokenState, dispatcherUrl, ct); }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            { logger.LogError(ex, "GraphMailWorker: unhandled error in outbound send cycle"); }
+
+            await Task.Delay(TimeSpan.FromSeconds(pollSeconds), ct);
+        }
+    }
+
+    // ─── OUTBOUND: Dispatcher outbox → Graph sendMail ─────────────────────────
+
+    private async Task SendPendingEmailsAsync(
+        string clientId, TokenState tokenState, string dispatcherUrl, CancellationToken ct)
+    {
+        var dispatchHttp = http.CreateClient("dispatcher");
+
+        // Fetch Pending + stale Processing (retry after 2 min)
+        var pendingJson = await dispatchHttp.GetStringAsync(
+            $"{dispatcherUrl}/outbox/email?status=Pending&take=20", ct);
+        var processingJson = await dispatchHttp.GetStringAsync(
+            $"{dispatcherUrl}/outbox/email?status=Processing&take=20", ct);
+
+        var pending    = JsonSerializer.Deserialize<OutboxEmail[]>(pendingJson,    JsonOpts) ?? [];
+        var processing = JsonSerializer.Deserialize<OutboxEmail[]>(processingJson, JsonOpts) ?? [];
+        var stale      = processing.Where(e => DateTime.UtcNow - e.CreatedAt > TimeSpan.FromMinutes(2));
+        var toSend     = pending.Concat(stale).ToArray();
+
+        if (toSend.Length == 0) return;
+
+        string accessToken;
+        try { accessToken = await RefreshAccessTokenAsync(clientId, tokenState, ct); }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "GraphMailWorker: token refresh failed for outbound send");
+            return;
+        }
+
+        var graphHttp = http.CreateClient();
+        graphHttp.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+
+        foreach (var email in toSend)
+        {
+            // Claim it
+            var claim = await dispatchHttp.PatchAsync(
+                $"{dispatcherUrl}/outbox/email/{email.Id}/status",
+                new StringContent("""{"status":"Processing"}""", Encoding.UTF8, "application/json"), ct);
+            if (!claim.IsSuccessStatusCode) continue;
+
+            try
+            {
+                var payload = JsonSerializer.Serialize(new
+                {
+                    message = new
+                    {
+                        subject = email.Subject,
+                        body    = new { contentType = "Text", content = email.Body ?? "" },
+                        toRecipients = new[]
+                        {
+                            new { emailAddress = new { address = email.To } }
+                        }
+                    },
+                    saveToSentItems = true
+                });
+
+                var sendResp = await graphHttp.PostAsync(
+                    $"{GraphBase}/me/sendMail",
+                    new StringContent(payload, Encoding.UTF8, "application/json"), ct);
+
+                if (sendResp.IsSuccessStatusCode)
+                {
+                    await dispatchHttp.PatchAsync(
+                        $"{dispatcherUrl}/outbox/email/{email.Id}/status",
+                        new StringContent("""{"status":"Sent"}""", Encoding.UTF8, "application/json"), ct);
+                    logger.LogInformation("GraphMailWorker: sent email to {To} re: {Subject}",
+                        email.To, email.Subject);
+                }
+                else
+                {
+                    var err = await sendResp.Content.ReadAsStringAsync(ct);
+                    logger.LogError("GraphMailWorker: Graph sendMail failed ({Code}): {Err}",
+                        sendResp.StatusCode, err);
+                    await dispatchHttp.PatchAsync(
+                        $"{dispatcherUrl}/outbox/email/{email.Id}/status",
+                        new StringContent(
+                            JsonSerializer.Serialize(new { status = "Failed", error = err }),
+                            Encoding.UTF8, "application/json"), ct);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "GraphMailWorker: exception sending email {Id}", email.Id);
+                await dispatchHttp.PatchAsync(
+                    $"{dispatcherUrl}/outbox/email/{email.Id}/status",
+                    new StringContent(
+                        JsonSerializer.Serialize(new { status = "Failed", error = ex.Message }),
+                        Encoding.UTF8, "application/json"), ct);
+            }
+        }
+    }
+
+    // ─── INBOUND: Graph inbox → Dispatcher ───────────────────────────────────
 
     private async Task PollInboxAsync(
         string clientId,
