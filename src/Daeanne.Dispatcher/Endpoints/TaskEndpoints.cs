@@ -67,14 +67,17 @@ public static class TaskEndpoints
                 return Results.Conflict(existing);
         }
 
-        // Merge GraphMessageId into ContextJson so the agent sees it in its prompt
+        // Merge GraphMessageId and SenderPhone into ContextJson so the agent sees them in its prompt
         var contextJson = request.ContextJson;
-        if (!string.IsNullOrWhiteSpace(request.GraphMessageId))
+        var extras = new Dictionary<string, string?>();
+        if (!string.IsNullOrWhiteSpace(request.GraphMessageId)) extras["graphMessageId"] = request.GraphMessageId;
+        if (!string.IsNullOrWhiteSpace(request.SenderPhone))    extras["senderPhone"]    = request.SenderPhone;
+        if (extras.Count > 0)
         {
             var ctx = string.IsNullOrWhiteSpace(contextJson)
                 ? new Dictionary<string, string?>()
                 : JsonSerializer.Deserialize<Dictionary<string, string?>>(contextJson) ?? new();
-            ctx["graphMessageId"] = request.GraphMessageId;
+            foreach (var (k, v) in extras) ctx[k] = v;
             contextJson = JsonSerializer.Serialize(ctx);
         }
 

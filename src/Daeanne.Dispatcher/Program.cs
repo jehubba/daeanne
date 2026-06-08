@@ -53,6 +53,21 @@ using (var scope = app.Services.CreateScope())
     if (!taskCols.Contains("ScheduledJobId"))
         db.Database.ExecuteSqlRaw("ALTER TABLE Tasks ADD COLUMN ScheduledJobId TEXT");
 
+    // OutboxSms table for SMS outbox (Bridge sends when ACS SMS is configured)
+    db.Database.ExecuteSqlRaw("""
+        CREATE TABLE IF NOT EXISTS OutboxSmsList (
+            Id            TEXT    NOT NULL PRIMARY KEY,
+            [To]          TEXT    NOT NULL,
+            Body          TEXT    NOT NULL,
+            Status        TEXT    NOT NULL DEFAULT 'Pending',
+            CreatedAt     TEXT    NOT NULL,
+            SentAt        TEXT,
+            Error         TEXT,
+            CorrelationId TEXT
+        )
+        """);
+    db.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS IX_OutboxSmsList_Status ON OutboxSmsList (Status)");
+
     // Add ScheduledJobs table if this is an existing DB (EnsureCreated won't alter existing schemas).
     db.Database.ExecuteSqlRaw("""
         CREATE TABLE IF NOT EXISTS ScheduledJobs (
@@ -91,6 +106,7 @@ app.MapGet("/health", () => Results.Ok(new
 
 app.MapTaskEndpoints();
 app.MapOutboxEndpoints();
+app.MapOutboxSmsEndpoints();
 app.MapSchedulerEndpoints();
 app.MapSchedulerCronEndpoints();
 

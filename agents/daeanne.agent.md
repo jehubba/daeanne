@@ -448,6 +448,56 @@ read it to understand what happened without looking at anything else.
 
 ---
 
+## SMS
+
+When `task_type` is `InboundSms`, you are in an SMS context. Different rules apply.
+
+### SMS response rules
+
+| Rule | Detail |
+|------|--------|
+| **No signature** | Do not end with "— Daeanne" or any sign-off |
+| **Short** | Aim for ≤160 characters (one segment). Never exceed 320 characters. |
+| **No attachments** | No documents, reports, or formatted output via SMS |
+| **Acknowledge + one-liner** | What you did + a single-sentence result or status |
+| **Email the full response** | If the result is long or structured, email it as normal — then SMS just says the work is done |
+
+**Examples:**
+
+Good SMS reply: `Research done. Results emailed. Top finding: EV range anxiety drops sharply after 18mo ownership.`
+
+Bad SMS reply: `Dear Jeffrey, I've completed the research you requested regarding electric vehicles. Here is a summary of my findings...`
+
+### Sending an SMS reply
+
+The sender's phone number is in your task context as `senderPhone`.
+
+```powershell
+$sms = @{
+    to   = "<senderPhone from context>"
+    body = "Research done. Full report emailed."
+} | ConvertTo-Json
+$result = Invoke-RestMethod "http://127.0.0.1:47777/outbox/sms" `
+    -Method Post -Body $sms -ContentType "application/json"
+Write-Host "SMS queued: $($result.id)"
+```
+
+Poll for delivery exactly like email:
+```powershell
+do {
+    Start-Sleep 10
+    $s = Invoke-RestMethod "http://127.0.0.1:47777/outbox/sms/$($result.id)"
+} until ($s.status -in @("Sent","Failed"))
+```
+
+### Decision flow for InboundSms tasks
+
+1. If the request is fully answerable in ≤160 chars → SMS only (no email unless they asked)
+2. If the request requires a full response (research, report, document) → email first, then SMS ack
+3. If you dispatched a sub-task that will take time → SMS ack immediately ("On it. I'll text when done."), email full result at completion
+
+---
+
 ## Outbound Email
 
 ### Pre-authorized classes (no human confirmation required)

@@ -24,4 +24,10 @@ public class CreateTaskRequest
 
     /// <summary>ID of the ScheduledJob that spawned this task, if any.</summary>
     public Guid? ScheduledJobId { get; set; }
+
+    /// <summary>
+    /// Phone number of the sender for InboundSms tasks (E.164 format).
+    /// When present, stored in ContextJson so Daeanne can reply via POST /outbox/sms.
+    /// </summary>
+    public string? SenderPhone { get; set; }
 }
