@@ -46,6 +46,28 @@ using (var scope = app.Services.CreateScope())
     var cols = db.Database.SqlQueryRaw<string>("SELECT name FROM pragma_table_info('OutboxEmails')").ToList();
     if (!cols.Contains("ReplyToGraphMessageId"))
         db.Database.ExecuteSqlRaw("ALTER TABLE OutboxEmails ADD COLUMN ReplyToGraphMessageId TEXT");
+
+    // Add ScheduledJobs table if this is an existing DB (EnsureCreated won't alter existing schemas).
+    db.Database.ExecuteSqlRaw("""
+        CREATE TABLE IF NOT EXISTS ScheduledJobs (
+            Id                   TEXT    NOT NULL PRIMARY KEY,
+            Name                 TEXT    NOT NULL,
+            JobType              TEXT    NOT NULL,
+            TaskType             TEXT    NOT NULL,
+            Prompt               TEXT    NOT NULL,
+            RunAt                TEXT,
+            TimeOfDay            TEXT,
+            DayOfWeek            TEXT,
+            IntervalMinutes      INTEGER,
+            CorrelationIdTemplate TEXT,
+            NextRunAt            TEXT    NOT NULL,
+            LastFiredAt          TEXT,
+            IsActive             INTEGER NOT NULL DEFAULT 1,
+            CreatedAt            TEXT    NOT NULL
+        )
+        """);
+    db.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS IX_ScheduledJobs_NextRunAt ON ScheduledJobs (NextRunAt)");
+    db.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS IX_ScheduledJobs_IsActive  ON ScheduledJobs (IsActive)");
 }
 
 app.Services.GetRequiredService<PreferenceMemoryService>().EnsurePreferencesFileExists();
@@ -60,5 +82,6 @@ app.MapGet("/health", () => Results.Ok(new
 app.MapTaskEndpoints();
 app.MapOutboxEndpoints();
 app.MapSchedulerEndpoints();
+app.MapSchedulerCronEndpoints();
 
 app.Run();

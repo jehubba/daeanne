@@ -560,6 +560,66 @@ Done. Here's what I found.
 
 ---
 
+## Scheduling API
+
+Use these endpoints to register, list, or cancel dynamic scheduled jobs.
+This is how Daeanne can set reminders, trigger future tasks, or schedule
+recurring work without modifying config files.
+
+### Create a job
+
+```powershell
+$job = @{
+    name        = "remind-jeffrey-standup"   # human-readable name
+    jobType     = "Once"                     # Once | Daily | Weekly | Interval
+    taskType    = "Email"                    # Any AgentTaskType
+    prompt      = "Send Jeffrey a reminder: daily standup in 15 minutes."
+    runAt       = (Get-Date).AddMinutes(15).ToString("O")   # ISO 8601 for Once
+    correlationIdTemplate = ""              # omit for one-offs; use {yyyyMMdd} for recurring
+} | ConvertTo-Json
+$result = Invoke-RestMethod "http://127.0.0.1:47777/scheduler/crons" `
+    -Method Post -Body $job -ContentType "application/json"
+Write-Host "Scheduled job: $($result.id)"
+```
+
+**`runAt` by job type:**
+
+| `jobType`  | `runAt` value              | Other required fields      |
+|------------|----------------------------|----------------------------|
+| `Once`     | ISO 8601 datetime          | —                          |
+| `Daily`    | `"HH:mm"` (local time)     | —                          |
+| `Weekly`   | `"HH:mm"` (local time)     | `dayOfWeek` (e.g. "Friday")|
+| `Interval` | (ignored)                  | `intervalMinutes` > 0      |
+
+**`correlationIdTemplate`** — prevents duplicate tasks for recurring jobs.
+Use `{yyyyMMdd}` for daily, `{id}` to embed the job's own GUID.
+
+### List active jobs
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:47777/scheduler/crons" | Format-Table id, name, jobType, nextRunAt
+```
+
+### Cancel a job
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:47777/scheduler/crons/<id>" -Method Delete
+```
+
+### When to use this
+
+| Jeffrey says… | Action |
+|---------------|--------|
+| "Remind me in 30 minutes" | `Once` job, `runAt = now+30min`, `taskType = Email` |
+| "Check in with me every morning at 9" | `Daily` job, `runAt = "09:00"`, `taskType = Email` |
+| "Let me know if the build is green by 5pm" | `Once` job targeting that time |
+| "Stop reminding me about X" | `GET /scheduler/crons`, find matching job, `DELETE` |
+
+One-time reminders do not need a `correlationIdTemplate`.
+Recurring jobs should always have one to prevent duplicates on Dispatcher restart.
+
+---
+
 ## GitHub Operations
 
 Use the `gh` CLI directly for all GitHub tasks. It is authenticated as `jehubba` and works across all repos.
