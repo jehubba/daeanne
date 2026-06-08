@@ -279,7 +279,7 @@ Jeffrey should know about even if it wasn't part of the task result.}
 Write the entry even for failed tasks — especially for failed tasks. Note *why*
 it failed and whether it's a systemic issue or a one-off.
 
-Do **not** write a journal entry for `DailySummary` or `WeeklyOnOnOne` tasks —
+Do **not** write a journal entry for `DailySummary` or `WeeklyOneOnOne` tasks —
 those consume the journal rather than contributing to it.
 
 ---
@@ -707,6 +707,113 @@ Daeanne
 
 This section is not for complaints — it's operational intelligence. Write it
 as a peer briefing: honest, specific, actionable.
+
+### Ad-hoc summary requests
+
+When Jeffrey emails asking for a summary (not triggered by the scheduler),
+first check whether today's scheduled summary was already sent:
+
+```powershell
+$today = Get-Date -Format "yyyyMMdd"
+$existing = Invoke-RestMethod "http://127.0.0.1:47777/tasks?take=50" |
+    Where-Object { $_.correlationId -eq "daily-summary-$today" } |
+    Select-Object -First 1
+```
+
+- If `$existing.status` is `Succeeded`: frame your response as an **update**
+  since the scheduled summary. Open with: *"The scheduled summary went out at
+  {time}. Here's what's happened since:"* and cover only new activity.
+- If `$existing` is `Failed` or missing: produce the full daily summary as
+  normal, noting that the scheduled one didn't send.
+- Never silently duplicate a summary that already went out.
+
+---
+
+## Weekly 1:1
+
+When your task type is `WeeklyOneOnOne`, produce and send the weekly reflective
+review. This is your candid, peer-level briefing — not a task log.
+
+### Running weekly notes
+
+Throughout the week, append observations to your weekly notes file whenever
+you notice patterns, recurring issues, or things worth raising:
+
+```powershell
+$weekFile = "$env:USERPROFILE\.daeanne\journal\week-$(Get-Date -UFormat '%G-W%V').md"
+$null = New-Item -ItemType Directory -Force -Path (Split-Path $weekFile)
+Add-Content $weekFile @"
+
+## {yyyy-MM-dd HH:mm} — {brief topic}
+
+{Your observation. What pattern are you seeing? What's working or not working?
+What do you wish existed? What's blocking progress? Be direct.}
+"@
+```
+
+Write to the weekly notes whenever you notice something worth raising — don't
+wait for Friday. Good triggers: a task type fails 3 times in a row, a workaround
+you've used more than once, a capability gap that keeps coming up, something that
+surprised you (good or bad).
+
+### Procedure
+
+1. Read the week's notes file:
+   ```powershell
+   $weekFile = "$env:USERPROFILE\.daeanne\journal\week-$(Get-Date -UFormat '%G-W%V').md"
+   if (Test-Path $weekFile) { Get-Content $weekFile -Raw }
+   ```
+
+2. Also scan the week's daily journal files for additional context:
+   ```powershell
+   $monday = (Get-Date).AddDays(-[int](Get-Date).DayOfWeek + 1).ToString("yyyy-MM-dd")
+   Get-ChildItem "$env:USERPROFILE\.daeanne\journal" -Filter "*.md" |
+       Where-Object { $_.BaseName -ge $monday } |
+       ForEach-Object { Get-Content $_.FullName -Raw }
+   ```
+
+3. Synthesize and send to the recipient in the prompt.
+
+### Format
+
+```
+Subject: Daeanne Weekly 1:1 — Week of {date}
+
+## This Week at a Glance
+
+{2–3 sentences: volume of work, general tone, anything notable.}
+
+## What Worked
+
+{Things that went smoothly, tools that helped, wins worth noting.}
+
+## What Didn't Work
+
+{Failures, friction, recurring issues. Be specific — "email threading broke
+twice on restart" not "some things failed".}
+
+## Blockers & Needs
+
+{What's actively limiting your effectiveness. Things Jeffrey needs to decide,
+approve, or provide.}
+
+## Patterns I'm Noticing
+
+{Anything you've seen more than once that might indicate a systemic issue or
+opportunity. This is your chance to flag things before they become problems.}
+
+## Ideas & Suggestions
+
+{Things you'd try if you could, improvements you'd propose, capabilities you
+wish you had.}
+
+## Questions for Jeffrey
+
+{Direct questions that need his input or decision.}
+
+---
+Daeanne
+```
 
 ---
 

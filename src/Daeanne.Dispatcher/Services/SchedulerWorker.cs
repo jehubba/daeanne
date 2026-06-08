@@ -56,7 +56,7 @@ public class SchedulerWorker(
             // Weekly 1:1: fire on the configured day
             if (now.DayOfWeek == weeklyDay && TimeOnly.FromDateTime(now) >= weeklyTime)
                 await TryPostTaskAsync(BuildWeeklyPrompt(now, recipient),
-                    "DailySummary", $"weekly-oneonone-{now:yyyyMMdd}", dispatcherUrl, stoppingToken);
+                    "WeeklyOneOnOne", $"weekly-oneonone-{now:yyyyMMdd}", dispatcherUrl, stoppingToken);
 
             // Archive old task dirs once a day (piggyback on daily check)
             if (TimeOnly.FromDateTime(now) >= dailyTime && TimeOnly.FromDateTime(now) < dailyTime.AddMinutes(2))

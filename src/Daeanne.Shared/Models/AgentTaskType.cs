@@ -8,5 +8,5 @@ public enum AgentTaskType
     Email,
     Generic,
     DailySummary,
-    WeeklyOnOnOne
+    WeeklyOneOnOne
 }
