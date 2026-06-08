@@ -13,6 +13,7 @@ public static class OutboxEndpoints
         app.MapGet("/outbox/email/{id:guid}", GetEmail);
         app.MapPost("/outbox/email", QueueEmail);
         app.MapPatch("/outbox/email/{id:guid}/status", UpdateEmailStatus);
+        app.MapPost("/outbox/email/{id:guid}/retry", RetryEmail);
     }
 
     private static async Task<IResult> GetOutbox(
@@ -89,6 +90,25 @@ public static class OutboxEndpoints
             email.Error = request.Error;
 
         await db.SaveChangesAsync();
+        return Results.Ok(email);
+    }
+
+    /// <summary>
+    /// Resets a Failed email back to Pending so the Bridge will retry it.
+    /// No-op if the email is already Sent or in a non-terminal state.
+    /// </summary>
+    private static async Task<IResult> RetryEmail(Guid id, DispatcherDbContext db)
+    {
+        var email = await db.OutboxEmails.FindAsync(id);
+        if (email is null) return Results.NotFound();
+
+        if (email.Status == OutboxEmailStatus.Sent)
+            return Results.Conflict($"Email {id} is already Sent — no retry needed.");
+
+        email.Status = OutboxEmailStatus.Pending;
+        email.Error  = null;
+        await db.SaveChangesAsync();
+
         return Results.Ok(email);
     }
 }

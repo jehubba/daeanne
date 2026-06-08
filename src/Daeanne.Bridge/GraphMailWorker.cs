@@ -331,7 +331,7 @@ public class GraphMailWorker(
                 ["grant_type"]    = "refresh_token",
                 ["client_id"]     = clientId,
                 ["refresh_token"] = state.RefreshToken!,
-                ["scope"]         = "Mail.Read Mail.ReadWrite offline_access"
+                ["scope"]         = "Mail.Read Mail.ReadWrite Mail.Send offline_access"
             }), ct);
 
         resp.EnsureSuccessStatusCode();
