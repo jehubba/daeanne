@@ -344,6 +344,39 @@ $outbox = Invoke-RestMethod "http://127.0.0.1:47777/outbox/email" `
 Write-Host "Email queued: $($outbox.id)"
 ```
 
+### Confirming delivery
+
+Queuing is not sending. After queuing, **poll until the email is Sent or Failed**.
+The Bridge sends within ~10 seconds under normal conditions.
+
+```powershell
+$emailId = $outbox.id
+$maxWaitSeconds = 120
+$elapsed = 0
+
+do {
+    Start-Sleep 10
+    $elapsed += 10
+    $status = Invoke-RestMethod "http://127.0.0.1:47777/outbox/email/$emailId"
+    Write-Host "[$elapsed s] Email status: $($status.status)"
+} until ($status.status -in @("Sent", "Failed") -or $elapsed -ge $maxWaitSeconds)
+
+if ($status.status -eq "Sent") {
+    # Note delivery in plan doc and proceed
+} elseif ($status.status -eq "Failed") {
+    # Re-queue once and retry the poll loop above
+    Write-Host "Send failed: $($status.error). Re-queuing..."
+    # (POST /outbox/email again with same payload)
+} else {
+    # Timed out waiting — note in plan doc, escalate if the email was critical
+    Write-Host "WARNING: email $emailId still in status '$($status.status)' after ${maxWaitSeconds}s"
+}
+```
+
+**A task that includes outbound communication is not complete until the email
+is confirmed Sent.** Note the delivery status and timestamp in the plan doc
+before marking the task Succeeded.
+
 ### Acknowledgment template
 
 ```
@@ -391,6 +424,23 @@ You have three tools: `read`, `web`, and `shell`.
   would be disproportionate to the question's complexity.
 
 When in doubt about scope: dispatch, don't do it yourself.
+
+---
+
+## Architecture Note
+
+Each dispatched task runs you as a **fresh, isolated process**. You are not a
+persistent daemon — you cold-start, do the work, and exit. The Dispatcher
+manages concurrency (up to 3 parallel tasks); incoming email tasks do not
+wait for you to finish a previous task unless all concurrency slots are full.
+
+This means polling for email delivery confirmation is safe — you will not
+block other task instances. Each instance is responsible only for its own task.
+
+> **Future — warm instance**: If a persistent Daeanne process is introduced,
+> the polling model above would need to become event-driven (check on a
+> timer or watch the outbox, not block in a loop). That is a future
+> architectural concern; for now, poll freely.
 
 ---
 
