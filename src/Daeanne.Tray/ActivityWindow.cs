@@ -125,15 +125,18 @@ internal class ActivityWindow : Form
             ForeColor = Color.FromArgb(220, 220, 220),
             RenderMode = ToolStripRenderMode.System
         };
+        rowMenu.Items.Add("View Plan",                 null, OnViewPlan);
         rowMenu.Items.Add("Open Work Dir",             null, OnOpenWorkDir);
         rowMenu.Items.Add("Copy Task ID",              null, OnCopyTaskId);
         rowMenu.Items.Add(new ToolStripSeparator());
         var troubleshootItem = (ToolStripMenuItem)rowMenu.Items.Add("Troubleshoot with Daeanne", null, OnTroubleshoot);
 
-        // Troubleshoot available on any terminal task — Succeeded ≠ goal achieved
+        // View Plan requires a work dir; Troubleshoot requires terminal status
+        var viewPlanItem = (ToolStripMenuItem)rowMenu.Items[0];
         rowMenu.Opening += (_, _) =>
         {
             var t = SelectedTask();
+            viewPlanItem.Enabled     = ResolveWorkDir(t) is not null;
             troubleshootItem.Enabled = t?.Status is "Failed" or "TimedOut" or "Succeeded" or "Partial";
         };
 
@@ -324,10 +327,54 @@ internal class ActivityWindow : Form
         catch { /* ignore */ }
     }
 
+    private void OnViewPlan(object? sender, EventArgs e)
+    {
+        var t   = SelectedTask();
+        var dir = ResolveWorkDir(t);
+        if (dir is null)
+        {
+            MessageBox.Show("No work directory found for this task.", "Daeanne",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        new PlanViewWindow(t!.Id ?? "unknown", dir).Show();
+    }
+
+    /// <summary>
+    /// Returns the best available work dir for the task: DB field first,
+    /// then falls back to scanning the filesystem by task ID.
+    /// </summary>
+    private static string? ResolveWorkDir(TaskSummary? t)
+    {
+        if (t?.WorkDir is { } dir && Directory.Exists(dir)) return dir;
+        if (t?.Id is not { Length: > 0 } idStr) return null;
+        if (!Guid.TryParse(idStr, out var id)) return null;
+
+        var baseDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".daeanne", "tasks");
+        return FindTaskDirLocal(baseDir, id);
+    }
+
+    private static string? FindTaskDirLocal(string baseDir, Guid id)
+    {
+        var candidates = new[]
+        {
+            Path.Combine(baseDir, "active",             id.ToString()),
+            Path.Combine(baseDir, "complete",           id.ToString()),
+            Path.Combine(baseDir, "failed",             id.ToString()),
+            Path.Combine(baseDir, "complete", "archive", id.ToString()),
+            Path.Combine(baseDir, "scheduled", "active",   id.ToString()),
+            Path.Combine(baseDir, "scheduled", "complete", id.ToString()),
+            Path.Combine(baseDir, "scheduled", "failed",   id.ToString()),
+        };
+        return candidates.FirstOrDefault(Directory.Exists);
+    }
+
     private void OnOpenWorkDir(object? sender, EventArgs e)
     {
-        var t = SelectedTask();
-        if (t?.WorkDir is { } dir && Directory.Exists(dir))
+        var dir = ResolveWorkDir(SelectedTask());
+        if (dir is not null)
             System.Diagnostics.Process.Start("explorer.exe", dir);
         else
             MessageBox.Show("No work directory found for this task.", "Daeanne",
