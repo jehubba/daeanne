@@ -14,6 +14,8 @@ internal class ActivityWindow : Form
     private readonly Label _dispatcherLabel;
     private readonly Label _bridgeDot;
     private readonly Label _bridgeLabel;
+    private readonly Label _daeanneD;
+    private readonly Label _daeanneLabel;
 
     // Task list
     private readonly ListView _taskList;
@@ -25,7 +27,7 @@ internal class ActivityWindow : Form
         _http = http;
 
         Text            = "Daeanne — Activity";
-        Size            = new Size(660, 480);
+        Size            = new Size(800, 480);
         MinimumSize     = new Size(500, 360);
         StartPosition   = FormStartPosition.CenterScreen;
         BackColor       = Color.FromArgb(28, 28, 30);
@@ -46,6 +48,8 @@ internal class ActivityWindow : Form
         _dispatcherLabel = MakeServiceLabel("Dispatcher  ·  checking…");
         _bridgeDot       = MakeDot();
         _bridgeLabel     = MakeServiceLabel("Bridge  ·  checking…");
+        _daeanneD        = MakeDot();
+        _daeanneLabel    = MakeServiceLabel("Daeanne  ·  checking…");
 
         var headerFlow = new FlowLayoutPanel
         {
@@ -60,6 +64,11 @@ internal class ActivityWindow : Form
         headerFlow.Controls.Add(sep);
         headerFlow.Controls.Add(_bridgeDot);
         headerFlow.Controls.Add(_bridgeLabel);
+        var sep2 = new Label { Text = "│", ForeColor = Color.Gray, Width = 20, TextAlign = ContentAlignment.MiddleCenter, AutoSize = false };
+        sep2.Font = new Font(sep2.Font.FontFamily, 14);
+        headerFlow.Controls.Add(sep2);
+        headerFlow.Controls.Add(_daeanneD);
+        headerFlow.Controls.Add(_daeanneLabel);
         headerPanel.Controls.Add(headerFlow);
 
         // ── Task list ─────────────────────────────────────────────────────────
@@ -216,11 +225,35 @@ internal class ActivityWindow : Form
 
     private async Task RefreshServicesAsync()
     {
-        var (dispOk, _) = await CheckAsync("http://127.0.0.1:47777/health");
+        var (dispOk, _)   = await CheckAsync("http://127.0.0.1:47777/health");
         var (bridgeOk, _) = await CheckAsync("http://127.0.0.1:47778/health");
+        bool daeanneOk    = await CheckDaeanneHealthAsync();
 
         UpdateServiceRow(_dispatcherDot, _dispatcherLabel, "Dispatcher", dispOk);
         UpdateServiceRow(_bridgeDot, _bridgeLabel, "Bridge", bridgeOk);
+        UpdateDaeanneRow(daeanneOk);
+    }
+
+    private async Task<bool> CheckDaeanneHealthAsync()
+    {
+        try
+        {
+            var json  = await _http.GetStringAsync("http://127.0.0.1:47777/tasks?take=50");
+            var tasks = JsonSerializer.Deserialize<List<TaskSummary>>(json,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? [];
+            var cutoff = DateTime.UtcNow.AddHours(-1);
+            return !tasks.Any(t =>
+                (t.Status == "Failed" || t.Status == "TimedOut") &&
+                t.CompletedAt >= cutoff);
+        }
+        catch { return false; }
+    }
+
+    private void UpdateDaeanneRow(bool ok)
+    {
+        _daeanneD.BackColor    = ok ? Color.FromArgb(80, 200, 80) : Color.FromArgb(230, 140, 30);
+        _daeanneLabel.Text     = $"Daeanne  ·  {(ok ? "healthy" : "recent failures")}";
+        _daeanneLabel.ForeColor = ok ? Color.FromArgb(200, 255, 200) : Color.FromArgb(255, 210, 140);
     }
 
     private async Task RefreshTasksAsync()
@@ -245,8 +278,12 @@ internal class ActivityWindow : Form
                     ? t.AgentResponse
                     : t.Error;
 
+                var statusText = t.AgentReported && t.Status == "Succeeded"
+                    ? "Succeeded ✔"
+                    : t.Status ?? "—";
+
                 var item = new ListViewItem(t.Type ?? "—");
-                item.SubItems.Add(t.Status ?? "—");
+                item.SubItems.Add(statusText);
                 item.SubItems.Add(t.StartedAt?.ToLocalTime().ToString("MM/dd HH:mm:ss") ?? "—");
                 item.SubItems.Add(duration);
                 item.SubItems.Add(note ?? "");
