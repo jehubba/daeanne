@@ -234,12 +234,15 @@ public class BridgeWorker : BackgroundService
             return;
         }
 
+        var formattedBody = EmailBodyFormatter.FormatMarkdown(email.Body);
+
         var bridgeMsg = new BridgeEmailMessage
         {
             From = "daeanne@daeanne.local",
             To = email.To,
             Subject = email.Subject,
-            BodyText = email.Body,
+            BodyText = formattedBody.PlainText,
+            BodyHtml = formattedBody.Html,
             OutboxEmailId = email.Id,
             MessageId = Guid.NewGuid()
         };
@@ -275,4 +278,3 @@ public class BridgeWorker : BackgroundService
         }
     }
 }
-
