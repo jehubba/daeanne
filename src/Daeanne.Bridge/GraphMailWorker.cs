@@ -146,38 +146,22 @@ public class GraphMailWorker(
 
             try
             {
+                var formattedBody = EmailBodyFormatter.FormatMarkdown(email.Body);
                 HttpResponseMessage sendResp;
 
                 if (!string.IsNullOrWhiteSpace(email.ReplyToGraphMessageId))
                 {
                     // Threaded reply — stays in the same email conversation
-                    var replyPayload = JsonSerializer.Serialize(new
-                    {
-                        comment = email.Body ?? ""
-                    });
-                    sendResp = await graphHttp.PostAsync(
-                        $"{GraphBase}/me/messages/{Uri.EscapeDataString(email.ReplyToGraphMessageId)}/reply",
-                        new StringContent(replyPayload, Encoding.UTF8, "application/json"), ct);
+                    sendResp = await SendMultipartReplyAsync(
+                        graphHttp,
+                        email.ReplyToGraphMessageId,
+                        formattedBody,
+                        ct);
                 }
                 else
                 {
                     // New email thread
-                    var payload = JsonSerializer.Serialize(new
-                    {
-                        message = new
-                        {
-                            subject = email.Subject,
-                            body    = new { contentType = "Text", content = email.Body ?? "" },
-                            toRecipients = new[]
-                            {
-                                new { emailAddress = new { address = email.To } }
-                            }
-                        },
-                        saveToSentItems = true
-                    });
-                    sendResp = await graphHttp.PostAsync(
-                        $"{GraphBase}/me/sendMail",
-                        new StringContent(payload, Encoding.UTF8, "application/json"), ct);
+                    sendResp = await SendMultipartEmailAsync(graphHttp, email, formattedBody, ct);
                 }
 
                 if (sendResp.IsSuccessStatusCode)
@@ -417,6 +401,98 @@ public class GraphMailWorker(
         ---
         {msg.BodyText}
         """;
+
+    private async Task<HttpResponseMessage> SendMultipartEmailAsync(
+        HttpClient graphHttp,
+        OutboxEmail email,
+        EmailBodyFormatter.FormattedBody body,
+        CancellationToken ct)
+    {
+        var mime = BuildMultipartAlternativeMime(
+            to: email.To,
+            subject: email.Subject,
+            plainText: body.PlainText,
+            html: body.Html);
+
+        return await graphHttp.PostAsync(
+            $"{GraphBase}/me/sendMail",
+            new StringContent(ToGraphMimePayload(mime), Encoding.UTF8, "text/plain"),
+            ct);
+    }
+
+    private async Task<HttpResponseMessage> SendMultipartReplyAsync(
+        HttpClient graphHttp,
+        string replyToGraphMessageId,
+        EmailBodyFormatter.FormattedBody body,
+        CancellationToken ct)
+    {
+        var mime = BuildMultipartAlternativeMime(
+            to: null,
+            subject: null,
+            plainText: body.PlainText,
+            html: body.Html);
+
+        return await graphHttp.PostAsync(
+            $"{GraphBase}/me/messages/{Uri.EscapeDataString(replyToGraphMessageId)}/reply",
+            new StringContent(ToGraphMimePayload(mime), Encoding.UTF8, "text/plain"),
+            ct);
+    }
+
+    private static string ToGraphMimePayload(string mimeRaw) =>
+        Convert.ToBase64String(Encoding.UTF8.GetBytes(mimeRaw));
+
+    private static string BuildMultipartAlternativeMime(
+        string? to,
+        string? subject,
+        string plainText,
+        string html)
+    {
+        var boundary = $"daeanne-alt-{Guid.NewGuid():N}";
+        var sb = new StringBuilder();
+
+        sb.Append("MIME-Version: 1.0\r\n");
+        sb.Append($"Content-Type: multipart/alternative; boundary=\"{boundary}\"\r\n");
+        if (!string.IsNullOrWhiteSpace(to))
+            sb.Append($"To: {SanitizeHeaderValue(to)}\r\n");
+        if (!string.IsNullOrWhiteSpace(subject))
+            sb.Append($"Subject: {SanitizeHeaderValue(subject)}\r\n");
+        sb.Append("\r\n");
+
+        sb.Append($"--{boundary}\r\n");
+        sb.Append("Content-Type: text/plain; charset=utf-8\r\n");
+        sb.Append("Content-Transfer-Encoding: base64\r\n\r\n");
+        sb.Append($"{ToBase64WithLineWrap(plainText)}\r\n");
+
+        sb.Append($"--{boundary}\r\n");
+        sb.Append("Content-Type: text/html; charset=utf-8\r\n");
+        sb.Append("Content-Transfer-Encoding: base64\r\n\r\n");
+        sb.Append($"{ToBase64WithLineWrap(html)}\r\n");
+
+        sb.Append($"--{boundary}--\r\n");
+        return sb.ToString();
+    }
+
+    private static string ToBase64WithLineWrap(string content)
+    {
+        var base64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(content ?? string.Empty));
+        const int lineLength = 76;
+
+        if (base64.Length <= lineLength)
+            return base64;
+
+        var sb = new StringBuilder(base64.Length + (base64.Length / lineLength) * 2);
+        for (var i = 0; i < base64.Length; i += lineLength)
+        {
+            var len = Math.Min(lineLength, base64.Length - i);
+            sb.Append(base64, i, len);
+            sb.Append("\r\n");
+        }
+
+        return sb.ToString().TrimEnd('\r', '\n');
+    }
+
+    private static string SanitizeHeaderValue(string value) =>
+        value.Replace("\r", string.Empty).Replace("\n", string.Empty);
 
     private static string StripHtml(string input)
     {
