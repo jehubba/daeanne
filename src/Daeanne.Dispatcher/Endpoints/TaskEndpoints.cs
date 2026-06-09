@@ -15,7 +15,7 @@ public static class TaskEndpoints
     {
         app.MapGet("/tasks",                         GetTasks);
         app.MapGet("/tasks/{id:guid}",               GetTask);
-        app.MapPost("/tasks",                        CreateTask);
+        app.MapPost("/tasks",                        CreateTask).RequireRateLimiting("task-ingestion");
         app.MapPost("/tasks/{id:guid}/result",       PostResult);
         app.MapPatch("/tasks/{id:guid}/status",      PostResult);   // alias — agents use PATCH
         app.MapPost("/tasks/{id:guid}/resume",       ResumeTask);

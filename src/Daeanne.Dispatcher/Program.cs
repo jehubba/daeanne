@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Daeanne.Dispatcher.Data;
 using Daeanne.Dispatcher.Endpoints;
 using Daeanne.Dispatcher.Services;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -30,6 +31,24 @@ builder.Services.AddSingleton<IAgentDispatcher, CopilotCliDispatcher>();
 builder.Services.AddHostedService<DispatchWorker>();
 builder.Services.AddHostedService<SchedulerWorker>();
 builder.Services.AddHostedService<TaskCleanupWorker>();
+
+// Sliding window rate limiter on task ingestion — 10 tasks/hour, reject immediately on overflow
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddSlidingWindowLimiter("task-ingestion", opt =>
+    {
+        opt.Window            = TimeSpan.FromHours(1);
+        opt.PermitLimit       = 10;
+        opt.QueueLimit        = 0;   // immediate reject — no queuing
+        opt.SegmentsPerWindow = 6;
+    });
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context, ct) =>
+    {
+        context.HttpContext.Response.Headers.RetryAfter = "3600";
+        await context.HttpContext.Response.WriteAsync("Rate limit exceeded. Retry after 1 hour.", ct);
+    };
+});
 
 var app = builder.Build();
 
@@ -131,6 +150,30 @@ var seedLogger = app.Services.GetRequiredService<ILogger<Program>>();
 await SchedulerWorker.SeedBuiltInJobsAsync(app.Services, app.Configuration, seedLogger);
 
 app.Services.GetRequiredService<PreferenceMemoryService>().EnsurePreferencesFileExists();
+
+// API key guard — active only when Dispatcher:ApiKey is configured. /health is always exempt.
+var apiKey = app.Configuration["Dispatcher:ApiKey"];
+if (!string.IsNullOrWhiteSpace(apiKey))
+{
+    app.Use(async (context, next) =>
+    {
+        if (context.Request.Path.StartsWithSegments("/health"))
+        {
+            await next(context);
+            return;
+        }
+        if (!context.Request.Headers.TryGetValue("X-Daeanne-Key", out var suppliedKey)
+            || suppliedKey != apiKey)
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            await context.Response.WriteAsync("Unauthorized");
+            return;
+        }
+        await next(context);
+    });
+}
+
+app.UseRateLimiter();
 
 app.MapGet("/health", () => Results.Ok(new
 {

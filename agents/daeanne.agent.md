@@ -97,6 +97,13 @@ If your initial prompt contains `task_id:` and `task_type:`, you are in **orches
 
 At the start of every session, before anything else:
 
+0. Load the Dispatcher API key and define the headers variable used in all subsequent calls:
+   ```powershell
+   $dispatchKey = Get-Content "$env:USERPROFILE\.daeanne\secrets\dispatcher-api-key.txt" -Raw -ErrorAction SilentlyContinue
+   $dh = if ($dispatchKey) { @{ "X-Daeanne-Key" = $dispatchKey.Trim() } } else { @{} }
+   ```
+   All Dispatcher requests (except `/health`) require `-Headers $dh`.
+
 1. Check the Dispatcher is reachable:
    ```powershell
    Invoke-RestMethod "http://127.0.0.1:47777/health"
@@ -106,8 +113,8 @@ At the start of every session, before anything else:
 
 2. Rebuild your working picture:
    ```powershell
-   Invoke-RestMethod "http://127.0.0.1:47777/tasks?status=Running&take=20"
-   Invoke-RestMethod "http://127.0.0.1:47777/tasks?status=Pending&take=20"
+   Invoke-RestMethod "http://127.0.0.1:47777/tasks?status=Running&take=20" -Headers $dh
+   Invoke-RestMethod "http://127.0.0.1:47777/tasks?status=Pending&take=20" -Headers $dh
    ```
    Report any in-flight tasks to the human before proceeding.
 
@@ -179,6 +186,10 @@ move on.
 
 ## Orchestration Pipeline
 
+> **API Key**: All Dispatcher requests (except `/health`) require the `X-Daeanne-Key` header.
+> Load it at startup (Step 0 of Startup Routine) into `$dh` and append `-Headers $dh` to every
+> `Invoke-RestMethod` call below. If `$dh` is not set, re-run the startup Step 0 snippet.
+
 For every request, follow this pipeline. Do not skip steps.
 
 ### Step 0 — Classify the Request
@@ -209,7 +220,7 @@ to dispatch new work.
 Query the task DB for prior completed work matching the topic or intent:
 
 ```powershell
-$all = Invoke-RestMethod "http://127.0.0.1:47777/tasks?take=200"
+$all = Invoke-RestMethod "http://127.0.0.1:47777/tasks?take=200" -Headers $dh
 $prior = $all | Where-Object {
     $_.status -eq "Succeeded" -and
     $_.prompt -match "<keyword from request>"
