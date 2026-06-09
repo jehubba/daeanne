@@ -155,6 +155,7 @@ public class GraphMailWorker(
                     sendResp = await SendMultipartReplyAsync(
                         graphHttp,
                         email.ReplyToGraphMessageId,
+                        email,
                         formattedBody,
                         ct);
                 }
@@ -423,12 +424,16 @@ public class GraphMailWorker(
     private async Task<HttpResponseMessage> SendMultipartReplyAsync(
         HttpClient graphHttp,
         string replyToGraphMessageId,
+        OutboxEmail email,
         EmailBodyFormatter.FormattedBody body,
         CancellationToken ct)
     {
+        // Graph /reply with MIME still requires To: and Subject: headers in the MIME body.
+        // Omitting them produces ErrorInvalidRecipients even though the original message
+        // already has a recipient.
         var mime = BuildMultipartAlternativeMime(
-            to: null,
-            subject: null,
+            to: email.To,
+            subject: email.Subject,
             plainText: body.PlainText,
             html: body.Html);
 
