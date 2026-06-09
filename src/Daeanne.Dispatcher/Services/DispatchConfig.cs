@@ -36,8 +36,9 @@ public class DispatchConfig
     /// <summary>Maps AgentTaskType → Copilot CLI agent name (as in ~/.copilot/agents/<name>.agent.md).</summary>
     public Dictionary<string, string> AgentMap { get; set; } = new()
     {
-        ["Research"]  = "research-agent",
-        ["Generic"]   = "daeanne"
+        ["Research"]   = "research-agent",
+        ["Generic"]    = "daeanne",
+        ["Diagnostic"] = "daeanne"
     };
 
     public string? GetAgentName(AgentTaskType type) =>

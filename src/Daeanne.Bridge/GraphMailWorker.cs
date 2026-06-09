@@ -241,7 +241,7 @@ public class GraphMailWorker(
                   "?$filter=isRead eq false" +
                   "&$orderby=receivedDateTime asc" +
                   "&$top=25" +
-                  "&$select=id,subject,from,body,receivedDateTime,internetMessageId";
+                  "&$select=id,subject,from,body,receivedDateTime,internetMessageId,conversationId";
 
         JsonElement messages;
         try
@@ -273,7 +273,8 @@ public class GraphMailWorker(
             var bodyRaw = msg.TryGetProperty("body", out var bv) ? bv.GetProperty("content").GetString() ?? "" : "";
             var isHtml = msg.TryGetProperty("body", out var bv2) &&
                          bv2.GetProperty("contentType").GetString() == "html";
-            var internetMsgId = msg.TryGetProperty("internetMessageId", out var mid) ? mid.GetString() : null;
+            var internetMsgId    = msg.TryGetProperty("internetMessageId", out var mid) ? mid.GetString() : null;
+            var conversationId   = msg.TryGetProperty("conversationId", out var cid) ? cid.GetString() : null;
             var received = msg.TryGetProperty("receivedDateTime", out var rd)
                 ? DateTimeOffset.Parse(rd.GetString()!)
                 : DateTimeOffset.UtcNow;
@@ -313,8 +314,14 @@ public class GraphMailWorker(
             {
                 type = "Email",
                 prompt,
-                correlationId = bridgeMsg.AcsMessageId,
-                graphMessageId = graphId   // used by Daeanne to send threaded replies
+                correlationId  = bridgeMsg.AcsMessageId,
+                graphMessageId = graphId,      // used by Daeanne to send threaded replies
+                contextJson    = JsonSerializer.Serialize(new
+                {
+                    conversationId,            // lets Daeanne correlate reply emails to prior tasks
+                    subject,
+                    from
+                })
             });
 
             var taskResp = await dispatchHttp.PostAsync(

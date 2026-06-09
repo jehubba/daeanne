@@ -654,25 +654,31 @@ When a task requires work from another specialized agent, dispatch it as a sub-t
 and self-suspend. The TASK waits — you don't. Any available Daeanne instance
 (including a fresh one) will pick up the resumption when the callback arrives.
 
-### Pattern: dispatch → await → exit
+### Pattern: dispatch → exit (parent auto-suspends)
 
 ```powershell
-# 1. Create the sub-task, passing your own task ID as parentTaskId
-$subTask = Invoke-RestMethod "http://127.0.0.1:47777/tasks" -Method Post `
+# Creating a sub-task with parentTaskId automatically suspends this task.
+# POST /tasks returns:
+#   202 Accepted = sub-agent started and acknowledged (confirmed live)
+#   201 Created  = task queued but agent hasn't acked yet (still fine — monitor via callbackAcknowledgedAt)
+$response = Invoke-WebRequest "http://127.0.0.1:47777/tasks" -Method Post `
   -Body (ConvertTo-Json @{
       type         = "Research"      # or any AgentTaskType
       prompt       = "Analyze AI trends for the past 7 days. Focus on LLMs and tooling."
-      parentTaskId = $env:TASK_ID    # links sub-task back to this task
+      parentTaskId = $env:TASK_ID    # links sub-task back to this task; auto-suspends you
   }) -ContentType "application/json"
 
-# 2. Self-suspend this task — Dispatcher will NOT mark it Succeeded when you exit
-Invoke-RestMethod "http://127.0.0.1:47777/tasks/$($env:TASK_ID)/await" -Method Post `
-  -Body (ConvertTo-Json @{ subtaskId = $subTask.id }) -ContentType "application/json"
+$subTask = $response.Content | ConvertFrom-Json
 
-# 3. Exit. You're done for now.
-Write-Host "Sub-task $($subTask.id) dispatched. This task is now Awaiting. Exiting."
+if ($response.StatusCode -eq 202) {
+    Write-Host "Sub-task $($subTask.id) dispatched and acknowledged. This task is Awaiting. Exiting."
+} else {
+    Write-Host "Sub-task $($subTask.id) queued (ack pending). This task is Awaiting. Exiting."
+}
 exit 0
 ```
+
+**Do NOT call `/await` separately — it no longer exists.** Creating the sub-task with `parentTaskId` is the only step needed. Your task status flips to `Awaiting` atomically.
 
 **What happens next (automatically):**
 1. Sub-agent starts, POSTs ack to `{callback_ack_url}` (injected by Dispatcher)
@@ -712,10 +718,10 @@ if (-not $sub.callbackAcknowledgedAt) {
 |-----------|---------|
 | Work requires a specialist agent (Research, TrendAnalyzer, etc.) | Sub-task + Await |
 | Work is quick (< 2 min) and you have the tools | Do it inline |
-| Multiple independent sub-tasks (fan-out) | Dispatch all, call /await once per sub-task, exit once |
-| You need the result before continuing | Sub-task + Await (NOT polling — exit and let callback resume you) |
+| Multiple independent sub-tasks (fan-out) | Dispatch all with parentTaskId, exit once — all fan-out sub-tasks share the same parentTaskId |
+| You need the result before continuing | Sub-task + parentTaskId (NOT polling — exit and let callback resume you) |
 
-**Never poll a sub-task.** `POST /await` + exit is the correct pattern.
+**Never poll a sub-task.** Creating with `parentTaskId` + exit is the correct pattern.
 Polling holds your session open and wastes a semaphore slot.
 
 ---

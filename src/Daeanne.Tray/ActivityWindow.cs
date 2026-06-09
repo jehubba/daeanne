@@ -17,7 +17,8 @@ internal class ActivityWindow : Form
 
     // Task list
     private readonly ListView _taskList;
-    private readonly Label _lastUpdated;
+    private readonly TextBox  _detailBox;
+    private readonly Label    _lastUpdated;
 
     public ActivityWindow(HttpClient http)
     {
@@ -79,7 +80,30 @@ internal class ActivityWindow : Form
         _taskList.Columns.Add("Duration", 100);
         _taskList.Columns.Add("Error",    160);
 
-        _taskList.DoubleClick += OnTaskDoubleClick;
+        var rowMenu = new ContextMenuStrip { BackColor = Color.FromArgb(45, 45, 45) };
+        rowMenu.Items.Add("Open Work Dir",       null, OnOpenWorkDir);
+        rowMenu.Items.Add("Copy Task ID",        null, OnCopyTaskId);
+        rowMenu.Items.Add(new ToolStripSeparator());
+        rowMenu.Items.Add("Troubleshoot with Daeanne", null, OnTroubleshoot);
+
+        _taskList.ContextMenuStrip = rowMenu;
+        _taskList.DoubleClick     += OnOpenWorkDir;
+        _taskList.SelectedIndexChanged += OnTaskSelected;
+
+        // ── Detail panel ──────────────────────────────────────────────────────
+        _detailBox = new TextBox
+        {
+            Dock        = DockStyle.Bottom,
+            Height      = 80,
+            Multiline   = true,
+            ReadOnly    = true,
+            ScrollBars  = ScrollBars.Vertical,
+            BackColor   = Color.FromArgb(22, 22, 22),
+            ForeColor   = Color.FromArgb(200, 200, 200),
+            BorderStyle = BorderStyle.None,
+            Font        = new Font("Segoe UI", 8.5f),
+            Padding     = new Padding(6)
+        };
 
         // ── Footer ────────────────────────────────────────────────────────────
         _lastUpdated = new Label
@@ -107,6 +131,7 @@ internal class ActivityWindow : Form
         refreshBtn.Click += async (_, _) => await RefreshAsync();
 
         Controls.Add(_taskList);
+        Controls.Add(_detailBox);
         Controls.Add(refreshBtn);
         Controls.Add(_lastUpdated);
         Controls.Add(headerPanel);
@@ -152,7 +177,7 @@ internal class ActivityWindow : Form
                 item.SubItems.Add(t.StartedAt?.ToLocalTime().ToString("MM/dd HH:mm:ss") ?? "—");
                 item.SubItems.Add(duration);
                 item.SubItems.Add(t.Error ?? "");
-                item.Tag = t.WorkDir;
+                item.Tag = t;   // store full task for detail panel / context menu
 
                 item.ForeColor = (t.Status ?? "") switch
                 {
@@ -174,13 +199,93 @@ internal class ActivityWindow : Form
         }
     }
 
-    private void OnTaskDoubleClick(object? sender, EventArgs e)
+    private void OnTaskSelected(object? sender, EventArgs e)
     {
-        if (_taskList.SelectedItems.Count == 0) return;
-        var workDir = _taskList.SelectedItems[0].Tag as string;
-        if (!string.IsNullOrWhiteSpace(workDir) && Directory.Exists(workDir))
-            System.Diagnostics.Process.Start("explorer.exe", workDir);
+        if (_taskList.SelectedItems.Count == 0) { _detailBox.Text = ""; return; }
+        var t = _taskList.SelectedItems[0].Tag as TaskSummary;
+        if (t is null) return;
+
+        var lines = new List<string>();
+        if (!string.IsNullOrWhiteSpace(t.Id))
+            lines.Add($"Task ID : {t.Id}");
+        if (!string.IsNullOrWhiteSpace(t.WorkDir))
+            lines.Add($"Work Dir: {t.WorkDir}");
+        if (!string.IsNullOrWhiteSpace(t.Error))
+            lines.Add($"Error   : {t.Error}");
+
+        // Parse resultJson for Daeanne's response summary
+        if (!string.IsNullOrWhiteSpace(t.ResultJson))
+        {
+            try
+            {
+                var r = JsonSerializer.Deserialize<JsonElement>(t.ResultJson);
+                if (r.TryGetProperty("response", out var resp) && resp.GetString() is { } s)
+                    lines.Add($"Result  : {s}");
+            }
+            catch { /* not parseable — skip */ }
+        }
+
+        _detailBox.Text = string.Join(Environment.NewLine, lines);
     }
+
+    private void OnOpenWorkDir(object? sender, EventArgs e)
+    {
+        var t = SelectedTask();
+        if (t?.WorkDir is { } dir && Directory.Exists(dir))
+            System.Diagnostics.Process.Start("explorer.exe", dir);
+        else
+            MessageBox.Show("No work directory found for this task.", "Daeanne",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
+
+    private void OnCopyTaskId(object? sender, EventArgs e)
+    {
+        var t = SelectedTask();
+        if (t?.Id is { Length: > 0 } id)
+            Clipboard.SetText(id);
+    }
+
+    private async void OnTroubleshoot(object? sender, EventArgs e)
+    {
+        var t = SelectedTask();
+        if (t is null) return;
+
+        var prompt = $"""
+            Diagnostic task: investigate why task {t.Id} ({t.Type}) ended with status {t.Status}.
+            Error (if any): {t.Error ?? "none"}
+            Work directory: {t.WorkDir ?? "unknown"}
+
+            Please:
+            1. Read the task work directory and daeanne-plan.md if present
+            2. Identify the root cause
+            3. If recoverable, resubmit as a new task with corrections
+            4. If not recoverable, email Jeffrey a concise root cause summary
+            """;
+
+        try
+        {
+            var body = JsonSerializer.Serialize(new { type = "Diagnostic", prompt });
+            var resp = await _http.PostAsync(
+                "http://127.0.0.1:47777/tasks",
+                new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+
+            MessageBox.Show(resp.IsSuccessStatusCode
+                ? "Diagnostic task created — Daeanne will investigate."
+                : $"Failed to create task: {resp.StatusCode}",
+                "Daeanne", MessageBoxButtons.OK,
+                resp.IsSuccessStatusCode ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Could not reach Dispatcher: {ex.Message}", "Daeanne",
+                MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private TaskSummary? SelectedTask() =>
+        _taskList.SelectedItems.Count > 0
+            ? _taskList.SelectedItems[0].Tag as TaskSummary
+            : null;
 
     private async Task<(bool ok, string? body)> CheckAsync(string url)
     {
@@ -227,11 +332,13 @@ internal class ActivityWindow : Form
     // Minimal DTO — matches AgentTask JSON shape from dispatcher
     private sealed class TaskSummary
     {
+        public string?   Id          { get; set; }
         public string?   Type        { get; set; }
         public string?   Status      { get; set; }
         public DateTime? StartedAt   { get; set; }
         public DateTime? CompletedAt { get; set; }
         public string?   Error       { get; set; }
         public string?   WorkDir     { get; set; }
+        public string?   ResultJson  { get; set; }
     }
 }

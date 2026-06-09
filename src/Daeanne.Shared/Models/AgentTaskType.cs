@@ -9,5 +9,6 @@ public enum AgentTaskType
     Generic,
     DailySummary,
     WeeklyOneOnOne,
-    InboundSms
+    InboundSms,
+    Diagnostic
 }
