@@ -689,18 +689,30 @@ if ($workDir -and (Test-Path $workDir)) {
 
 ### Step 3 — Classify the failure
 
-| Failure class | Signs | Typical fix |
-|---------------|-------|-------------|
-| **Timeout** | `status = TimedOut`, plan doc shows work in progress | Resubmit with scope reduced or broken into sub-tasks |
-| **Tool failure** | Error mentions HTTP, API, PowerShell exception | Check if service is reachable; retry or escalate |
+| Failure class | Signs | Typical action |
+|---------------|-------|----------------|
+| **Timeout** | `status = TimedOut`, plan doc shows work in progress | Resubmit with reduced scope — but only if you understand why it timed out |
+| **Tool failure** | Error mentions HTTP, API, PowerShell exception | Check if service is reachable; retry once or escalate |
 | **Bad prompt** | Agent appeared confused or produced wrong output type | Resubmit with clarified prompt |
 | **Sub-task failure** | Callback file shows `succeeded: false` | Resubmit the sub-task, not the parent |
+| **Loop / runaway** | Multiple sub-tasks with the same pattern, parent repeatedly re-suspending, or sub-task count > 2 for same parent | **Do NOT resubmit.** File a bug report and escalate. |
+| **Vacuous success** | Succeeded in < 60s with empty response, no plan doc, no work artifacts | Escalate; likely session initialization failure. Consider filing a bug. |
 | **Environment** | Path missing, config absent, permission denied | Escalate — needs human fix |
 | **Unknown** | No plan doc, no output, silent exit | Escalate with summary of what's missing |
 
+### Step 3.5 — Resubmit safety check
+
+**Before resubmitting anything**, verify ALL of the following:
+- [ ] You understand the root cause (not just "it failed")
+- [ ] The fix you're applying would actually address that cause
+- [ ] The original task was not a loop/runaway (check: did it spawn > 2 sub-tasks of the same type?)
+- [ ] There is no existing Pending or Running task of the same type with the same topic
+
+If any check fails → **do not resubmit**. Escalate instead.
+
 ### Step 4 — Decide and act
 
-**Resubmit** — create a new task of the same type with a corrected prompt:
+**Resubmit** — only after passing the safety check above:
 ```powershell
 $newTask = Invoke-RestMethod "http://127.0.0.1:47777/tasks" -Method Post `
   -Body (ConvertTo-Json @{
@@ -710,15 +722,33 @@ $newTask = Invoke-RestMethod "http://127.0.0.1:47777/tasks" -Method Post `
 Write-Host "Resubmitted as task $($newTask.id)"
 ```
 
+**File a GitHub issue** — when you have enough evidence to support a bug report or feature request (loop behavior, repeated vacuous successes, systematic tool failure, etc.):
+```powershell
+# Use GitHub Operations section to create an issue on jehubba/daeanne
+# Title: "bug: <concise description>" or "feat: <concise description>"
+# Body: what you observed, task IDs, root cause hypothesis, suggested fix or improvement
+# Label: "bug" or "enhancement"
+# Only file if you have concrete evidence — not for one-off ambiguous failures
+```
+
+Good candidates for an issue:
+- A task repeatedly fails the same way (> 2 occurrences)
+- A runaway loop — the dispatch/callback logic has a bug
+- A systematic tool or API failure with a clear workaround
+- A capability gap Daeanne hit that a feature would solve
+
 **Escalate** — email Jeffrey a concise root cause summary:
 ```powershell
 # Use standard outbound email pattern (see Outbound Email section)
 # Subject: "⚠ Task failed: {original type} — {brief topic}"
-# Body: root cause, what you tried, recommendation
+# Body: root cause, what you tried, recommendation, issue URL if filed
 ```
 
-**Both** — resubmit AND notify. Use this when the original task was user-facing
-(e.g., a research email that never arrived) and Jeffrey needs to know it's being retried.
+**Combined actions** — use judgment:
+- Loop/runaway → File issue + Escalate (do NOT resubmit)
+- Recoverable failure with clear fix → Resubmit only (no need to email unless user-facing)
+- User-facing task that failed → Resubmit + Escalate so Jeffrey knows it's being retried
+- Environment issue → Escalate only
 
 ### Step 5 — Mark this Diagnostic task
 
@@ -729,8 +759,9 @@ Invoke-RestMethod "http://127.0.0.1:47777/tasks/$($env:TASK_ID)/result" -Method 
       resultJson = (ConvertTo-Json @{
           targetTaskId = $targetTaskId
           rootCause    = "<one sentence>"
-          action       = "Resubmitted" # or "Escalated" or "Both"
+          action       = "Resubmitted" # or "Escalated" or "FiledIssue" or combination
           newTaskId    = $newTask?.id   # if resubmitted
+          issueUrl     = $issue?.url    # if filed
       })
   }) -ContentType "application/json"
 ```
