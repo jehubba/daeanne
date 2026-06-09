@@ -66,21 +66,27 @@ internal class TrayContext : ApplicationContext
                      : (!dispatcherOk || !bridgeOk || recentFailure) ? TrayState.Orange
                      : TrayState.Green;
 
-        // Update icon + tooltip directly — NotifyIcon wraps Win32 and is safe from any thread
-        _currentState    = newState;
-        _trayIcon.Icon   = newState switch
+        _currentState  = newState;
+        _trayIcon.Icon = newState switch
         {
             TrayState.Red    => IconLoader.Red,
             TrayState.Orange => IconLoader.Orange,
             _                => IconLoader.Green
         };
 
-        var statusText = newState switch
-        {
-            TrayState.Red    => "⚠ Services unreachable",
-            TrayState.Orange => "⚠ Degraded",
-            _                => "Healthy"
-        };
+        // Build specific tooltip so orange is self-explaining
+        string statusText;
+        if (!dispatcherOk && !bridgeOk)
+            statusText = "⚠ Dispatcher + Bridge unreachable";
+        else if (!dispatcherOk)
+            statusText = "⚠ Dispatcher unreachable";
+        else if (!bridgeOk)
+            statusText = "⚠ Bridge unreachable";
+        else if (recentFailure)
+            statusText = "⚠ Recent task failures";
+        else
+            statusText = "Healthy";
+
         _trayIcon.Text = $"Daeanne — {statusText}";
     }
 
