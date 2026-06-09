@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Threading.Channels;
 using Daeanne.Dispatcher.Data;
 using Daeanne.Dispatcher.Endpoints;
@@ -94,6 +95,17 @@ public class DispatchWorker(
             if (!result.Succeeded && result.Error?.Contains("timed out") == true)
                 finalStatus = AgentTaskStatus.TimedOut;
 
+            // Override with agent's self-reported status from daeanne-plan.md frontmatter,
+            // if available. This catches cases where the agent wrote its outcome to the plan
+            // doc but didn't call PATCH /tasks/{id}/status before exiting.
+            var planDoc = TaskDirManager.ReadPlanDoc(_config.ResolvedWorkDir, taskId);
+            if (planDoc is not null)
+            {
+                logger.LogInformation("Task {TaskId} plan doc reports status={Status} — using instead of exit-code heuristic.",
+                    taskId, planDoc.Status);
+                finalStatus = planDoc.Status;
+            }
+
             // Save result — and move the task dir to its final location
             using (var scope = scopeFactory.CreateScope())
             {
@@ -108,11 +120,22 @@ public class DispatchWorker(
                     var newWorkDir = TaskDirManager.MoveToFinalLocation(
                         _config.ResolvedWorkDir, taskId, finalStatus, t.IsScheduled, logger);
 
-                    t.Status     = finalStatus;
-                    t.ResultJson = TaskDirManager.UpdateResultJsonWorkDir(result.ResultJson, newWorkDir);
-                    t.Error      = result.Error;
-                    t.CompletedAt = DateTime.UtcNow;
-                    t.UpdatedAt   = DateTime.UtcNow;
+                    // If plan doc provided a response, inject it into resultJson
+                    var effectiveResultJson = result.ResultJson;
+                    if (planDoc?.Response is { } planResponse)
+                    {
+                        var merged = string.IsNullOrWhiteSpace(effectiveResultJson)
+                            ? JsonSerializer.Serialize(new { response = planResponse })
+                            : TaskDirManager.MergeResponseIntoResultJson(effectiveResultJson, planResponse);
+                        effectiveResultJson = merged;
+                    }
+
+                    t.Status        = finalStatus;
+                    t.ResultJson    = TaskDirManager.UpdateResultJsonWorkDir(effectiveResultJson, newWorkDir);
+                    t.Error         = result.Error;
+                    t.CompletedAt   = DateTime.UtcNow;
+                    t.UpdatedAt     = DateTime.UtcNow;
+                    t.AgentReported = planDoc is not null;  // plan doc counts as agent self-report
                     await db.SaveChangesAsync(ct);
 
                     logger.LogInformation("Task {TaskId} → {Status} (dir: {Dir})", taskId, finalStatus, newWorkDir);

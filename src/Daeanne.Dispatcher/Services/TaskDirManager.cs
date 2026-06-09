@@ -116,6 +116,7 @@ public static class TaskDirManager
             {
                 logger?.LogError("TaskDirManager: could not move {Id} to {Target} after 4 attempts: {Msg}",
                     id, targetPath, ex.Message);
+                return sourcePath;   // report actual location, not intended target
             }
         }
 
@@ -201,7 +202,101 @@ public static class TaskDirManager
             logger?.LogInformation("TaskDirManager: migrated {N} flat task dirs to subfolder layout.", moved);
     }
 
-    // ─── resultJson ───────────────────────────────────────────────────────────
+    // ─── Plan doc parsing ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Reads daeanne-plan.md from the task's active directory (or wherever FindTaskDir finds it)
+    /// and returns the agent's self-reported status and response text.
+    /// Returns null if no plan doc exists or it has no parseable frontmatter status.
+    /// </summary>
+    public static PlanDocResult? ReadPlanDoc(string baseDir, Guid id)
+    {
+        var taskDir = FindTaskDir(baseDir, id);
+        if (taskDir is null) return null;
+
+        var planPath = Path.Combine(taskDir, "daeanne-plan.md");
+        if (!File.Exists(planPath)) return null;
+
+        try
+        {
+            var lines = File.ReadAllLines(planPath);
+
+            // Parse YAML frontmatter (between first two --- lines)
+            string? status = null;
+            var inFrontmatter = false;
+            var fmEnd = 0;
+            for (int i = 0; i < lines.Length; i++)
+            {
+                var line = lines[i].Trim();
+                if (i == 0 && line == "---") { inFrontmatter = true; continue; }
+                if (inFrontmatter && line == "---") { fmEnd = i; break; }
+                if (inFrontmatter && line.StartsWith("status:", StringComparison.OrdinalIgnoreCase))
+                    status = line["status:".Length..].Trim().ToLowerInvariant();
+            }
+
+            if (status is null) return null;
+
+            var agentStatus = status switch
+            {
+                "complete" or "completed" or "succeeded" or "success" => AgentTaskStatus.Succeeded,
+                "failed"   or "failure"                               => AgentTaskStatus.Failed,
+                "partial"                                             => AgentTaskStatus.Partial,
+                _                                                     => (AgentTaskStatus?)null
+            };
+
+            if (agentStatus is null) return null;
+
+            // Extract the ## Result section for a response summary
+            string? response = null;
+            var resultSection = false;
+            var resultLines = new List<string>();
+            for (int i = fmEnd + 1; i < lines.Length; i++)
+            {
+                if (lines[i].StartsWith("## Result", StringComparison.OrdinalIgnoreCase))
+                    { resultSection = true; continue; }
+                if (resultSection && lines[i].StartsWith("## "))
+                    break;
+                if (resultSection && !string.IsNullOrWhiteSpace(lines[i]))
+                    resultLines.Add(lines[i].TrimStart('#', ' ', '*'));
+            }
+            if (resultLines.Count > 0)
+                response = string.Join(" ", resultLines).Trim();
+            if (string.IsNullOrWhiteSpace(response)) response = null;
+
+            return new PlanDocResult(agentStatus.Value, response);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public record PlanDocResult(AgentTaskStatus Status, string? Response);
+
+
+
+    /// <summary>
+    /// If <paramref name="resultJson"/> has an empty or absent "response" field,
+    /// replaces it with <paramref name="response"/>. Otherwise leaves it alone.
+    /// </summary>
+    public static string MergeResponseIntoResultJson(string resultJson, string response)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(resultJson);
+            if (doc.RootElement.TryGetProperty("response", out var existing) &&
+                !string.IsNullOrWhiteSpace(existing.GetString()))
+                return resultJson;
+
+            var dict = new Dictionary<string, object?>();
+            foreach (var prop in doc.RootElement.EnumerateObject())
+                dict[prop.Name] = prop.Value.ValueKind == JsonValueKind.String
+                    ? prop.Value.GetString() : (object?)prop.Value.GetRawText();
+            dict["response"] = response;
+            return JsonSerializer.Serialize(dict);
+        }
+        catch { return resultJson; }
+    }
 
     /// <summary>
     /// Returns a copy of <paramref name="resultJson"/> with the "workDir" and "sessionLog"
