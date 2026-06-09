@@ -28,7 +28,7 @@ internal class ActivityWindow : Form
         Size            = new Size(660, 480);
         MinimumSize     = new Size(500, 360);
         StartPosition   = FormStartPosition.CenterScreen;
-        BackColor       = Color.FromArgb(30, 30, 30);
+        BackColor       = Color.FromArgb(28, 28, 30);
         ForeColor       = Color.White;
         FormBorderStyle = FormBorderStyle.Sizable;
         ShowInTaskbar   = false;
@@ -38,7 +38,7 @@ internal class ActivityWindow : Form
         {
             Dock      = DockStyle.Top,
             Height    = 52,
-            BackColor = Color.FromArgb(45, 45, 45),
+            BackColor = Color.FromArgb(38, 38, 42),
             Padding   = new Padding(12, 0, 12, 0)
         };
 
@@ -69,8 +69,9 @@ internal class ActivityWindow : Form
             View          = View.Details,
             FullRowSelect = true,
             GridLines     = false,
-            BackColor     = Color.FromArgb(30, 30, 30),
-            ForeColor     = Color.White,
+            OwnerDraw     = true,
+            BackColor     = Color.FromArgb(28, 28, 30),
+            ForeColor     = Color.FromArgb(220, 220, 220),
             BorderStyle   = BorderStyle.None,
             Font          = new Font("Segoe UI", 9f)
         };
@@ -80,7 +81,47 @@ internal class ActivityWindow : Form
         _taskList.Columns.Add("Duration", 100);
         _taskList.Columns.Add("Error",    160);
 
-        var rowMenu = new ContextMenuStrip { BackColor = Color.FromArgb(45, 45, 45) };
+        // Owner-draw: dark column headers
+        _taskList.DrawColumnHeader += (_, e) =>
+        {
+            using var bgBrush = new SolidBrush(Color.FromArgb(50, 50, 54));
+            e.Graphics.FillRectangle(bgBrush, e.Bounds);
+            using var pen = new Pen(Color.FromArgb(68, 68, 72));
+            e.Graphics.DrawLine(pen, e.Bounds.Right - 1, e.Bounds.Top, e.Bounds.Right - 1, e.Bounds.Bottom - 1);
+            e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
+            TextRenderer.DrawText(e.Graphics, e.Header?.Text ?? "", _taskList.Font,
+                Rectangle.Inflate(e.Bounds, -4, 0),
+                Color.FromArgb(190, 190, 195),
+                TextFormatFlags.VerticalCenter | TextFormatFlags.Left);
+        };
+
+        // Owner-draw: suppress default item background (DrawSubItem handles it)
+        _taskList.DrawItem += (_, e) => { e.DrawDefault = false; };
+
+        // Owner-draw: rows with alternating shade + custom selection color
+        _taskList.DrawSubItem += (_, e) =>
+        {
+            bool selected = e.Item.Selected;
+            bool alt      = e.Item.Index % 2 == 1;
+            var bg = selected
+                ? Color.FromArgb(42, 88, 148)
+                : alt ? Color.FromArgb(34, 34, 38) : Color.FromArgb(28, 28, 30);
+            using var bgBrush = new SolidBrush(bg);
+            e.Graphics.FillRectangle(bgBrush, e.Bounds);
+
+            var fg = selected ? Color.White : e.Item.ForeColor;
+            TextRenderer.DrawText(e.Graphics, e.SubItem?.Text ?? "", _taskList.Font,
+                Rectangle.Inflate(e.Bounds, -4, 0),
+                fg,
+                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
+        };
+
+        var rowMenu = new ContextMenuStrip
+        {
+            BackColor = Color.FromArgb(40, 40, 44),
+            ForeColor = Color.FromArgb(220, 220, 220),
+            RenderMode = ToolStripRenderMode.System
+        };
         rowMenu.Items.Add("Open Work Dir",             null, OnOpenWorkDir);
         rowMenu.Items.Add("Copy Task ID",              null, OnCopyTaskId);
         rowMenu.Items.Add(new ToolStripSeparator());
@@ -141,8 +182,8 @@ internal class ActivityWindow : Form
             Height    = 28,
             Text      = "↻  Refresh",
             FlatStyle = FlatStyle.Flat,
-            BackColor = Color.FromArgb(55, 55, 55),
-            ForeColor = Color.White,
+            BackColor = Color.FromArgb(50, 50, 54),
+            ForeColor = Color.FromArgb(210, 210, 215),
             Font      = new Font("Segoe UI", 9f)
         };
         refreshBtn.FlatAppearance.BorderSize = 0;
