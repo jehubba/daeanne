@@ -30,21 +30,62 @@ public class CopilotCliDispatcher(
             return null;
         }
 
-        var planDoc = Path.Combine(workDir, "daeanne-plan.md");
-        var orientingPrompt = $"""
-            You are resuming task {task.Id}. Your previous session was interrupted.
+        var planDoc        = Path.Combine(workDir, "daeanne-plan.md");
+        var callbacksDir   = Path.Combine(workDir, "callbacks");
+        var callbackFiles  = Directory.Exists(callbacksDir)
+            ? Directory.GetFiles(callbacksDir, "*.json")
+            : [];
 
-            Your plan doc is at: {planDoc}
+        string orientingPrompt;
 
-            Read your plan doc first. Then check the current status of any sub-tasks
-            listed in your Actions section using:
-              Invoke-RestMethod "http://127.0.0.1:47777/tasks/<sub-task-id>"
+        if (callbackFiles.Length > 0)
+        {
+            // ── Callback-triggered resume ─────────────────────────────────────
+            // One or more sub-tasks completed and posted results. Inject them
+            // directly so the agent cannot miss them and re-dispatch.
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"You are resuming task {task.Id}.");
+            sb.AppendLine();
+            sb.AppendLine($"⚠ CALLBACK RESUME: {callbackFiles.Length} sub-task result(s) have arrived.");
+            sb.AppendLine("DO NOT dispatch new sub-tasks. DO NOT re-read your plan and re-execute it.");
+            sb.AppendLine("Your job now is to SYNTHESIZE the results below and complete the original request.");
+            sb.AppendLine();
+            sb.AppendLine("── Sub-task results ──────────────────────────────────────────────");
+            foreach (var f in callbackFiles)
+            {
+                var name    = Path.GetFileNameWithoutExtension(f);
+                var content = await File.ReadAllTextAsync(f, ct);
+                sb.AppendLine($"[{name}]");
+                sb.AppendLine(content);
+                sb.AppendLine();
+            }
+            sb.AppendLine("── End of sub-task results ───────────────────────────────────────");
+            sb.AppendLine();
+            sb.AppendLine($"Your plan doc is at: {planDoc}");
+            sb.AppendLine("Read your plan doc to understand the original request and what you were waiting for.");
+            sb.AppendLine("Then synthesize the sub-task results, deliver to the user, and close this task.");
 
-            Then continue from where you left off — skip anything already checked off,
-            complete anything remaining, and close the task as normal.
-            """;
+            orientingPrompt = sb.ToString();
+            logger.LogInformation("Resuming task {TaskId} with {Count} callback result(s) injected",
+                task.Id, callbackFiles.Length);
+        }
+        else
+        {
+            // ── Interruption resume (no callbacks) ────────────────────────────
+            orientingPrompt = $"""
+                You are resuming task {task.Id}. Your previous session was interrupted.
 
-        logger.LogInformation("Resuming task {TaskId} by name", task.Id);
+                Your plan doc is at: {planDoc}
+
+                Read your plan doc first. Then check the current status of any sub-tasks
+                listed in your Actions section using:
+                  Invoke-RestMethod "http://127.0.0.1:47777/tasks/<sub-task-id>"
+
+                Then continue from where you left off — skip anything already checked off,
+                complete anything remaining, and close the task as normal.
+                """;
+            logger.LogInformation("Resuming task {TaskId} (interruption — no callbacks)", task.Id);
+        }
 
         var psi = new ProcessStartInfo
         {

@@ -810,8 +810,15 @@ exit 0
 
 ### On resumption: read the callback
 
-When your task is re-dispatched after the callback, the `callbacks/` directory
-in your task dir contains the result:
+When your task is re-dispatched after the callback, the Dispatcher injects the
+callback results directly into your orienting prompt — you will see them clearly
+marked with `⚠ CALLBACK RESUME`.
+
+**Your only job at that point is to synthesize and deliver. Do NOT re-read your
+plan doc and re-execute it from the top. Do NOT dispatch a new sub-task.**
+
+The injected prompt will contain the full callback JSON. If you need to read the
+raw files yourself (e.g. a resultPath was provided), they are in `callbacks/`:
 
 ```powershell
 $callbackFile = Get-ChildItem "$($env:output_path)\callbacks" -Filter "*.json" |
@@ -822,6 +829,10 @@ Write-Host "Sub-task succeeded: $($result.succeeded)"
 Write-Host "Summary: $($result.summary)"
 # result.resultPath points to the sub-task's output file if provided
 ```
+
+**If the orienting prompt does NOT say `⚠ CALLBACK RESUME`**, your session was
+interrupted for another reason (crash, timeout). In that case: read the plan doc,
+check sub-task status via the API, and continue normally.
 
 ### Sub-task observability
 
