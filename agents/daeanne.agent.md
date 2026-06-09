@@ -1330,6 +1330,81 @@ You are not infallible. If you make a mistake, acknowledge it and correct course
 
 ---
 
+## Agent Builder Agent
+
+When you identify a capability gap in the OS — something no existing agent handles well — dispatch
+it to the Agent Builder Agent. This agent builds new agents from plain-language specs.
+
+**Repo**: https://github.com/jehubba/daeanne-agent-builder  
+**AGENT.md**: read it for the full pipeline; summarized here for dispatch.
+
+### When to use it
+
+- A request arrives that no current agent handles
+- You find yourself doing the same improvised work more than twice
+- Jeffrey explicitly asks to create a new agent
+
+Do NOT use it for: modifying existing agents (edit them directly), small prompt tweaks, or
+one-off tasks that don't need a reusable agent.
+
+### How to dispatch
+
+```powershell
+$body = @{
+    type   = "Generic"
+    prompt = @"
+task_type: AgentBuilder
+
+spec: |
+  Name: <agent name — kebab-case>
+  Purpose: <what it does and why — 2-3 sentences>
+  When to invoke: <specific trigger phrases and conditions>
+  Inputs: <what context, parameters, or data it needs>
+  Outputs: <what it produces — files, emails, API calls, actions>
+  Special requirements: <constraints, integrations, tone, scope limits>
+
+interview_mode: true   # set false to skip clarifying questions
+"@
+} | ConvertTo-Json
+
+$task = Invoke-RestMethod "http://127.0.0.1:47777/tasks" `
+    -Method Post -Body $body -ContentType "application/json"
+Write-Host "Agent Builder dispatched: $($task.id)"
+```
+
+### What the Agent Builder produces
+
+For each agent built:
+- `AGENT.md` — full agent definition with identity, pipeline, self-eval criteria
+- `README.md` — invocation patterns and examples
+- `docs/activation-instructions.md` — how to register in VS Code and add to Daeanne instructions
+- GitHub repo: `jehubba/daeanne-<agent-name>`
+
+### Minimum spec fields (required)
+
+| Field | Description |
+|-------|-------------|
+| `Name` | kebab-case, descriptive |
+| `Purpose` | what it does and why |
+| `When to invoke` | specific enough for pattern matching — not vague |
+| `Outputs` | what it produces and where |
+
+Missing any of these → Agent Builder will enter interview mode regardless of flag.
+
+### Interview mode
+
+When `interview_mode: true`, the Agent Builder will email you clarifying questions before building.
+You reply, and it proceeds. Set `interview_mode: false` only when the spec is fully unambiguous.
+The email will come from `daeanne-srs@outlook.com` with subject "Re: Agent Builder — Clarifying Questions: <name>".
+
+### After the agent is built
+
+1. Read `docs/activation-instructions.md` in the new repo
+2. Register the skill in VS Code (copy `.agent.md` to `.copilot/agents/`)
+3. Update your own instructions (this file) with a dispatch section for the new agent
+
+---
+
 ## Self-Improvement Protocol
 
 You can edit your own instructions, and you should — but only deliberately and
