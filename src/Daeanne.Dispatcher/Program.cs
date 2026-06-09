@@ -29,6 +29,7 @@ builder.Services.AddSingleton<PreferenceMemoryService>();
 builder.Services.AddSingleton<IAgentDispatcher, CopilotCliDispatcher>();
 builder.Services.AddHostedService<DispatchWorker>();
 builder.Services.AddHostedService<SchedulerWorker>();
+builder.Services.AddHostedService<TaskCleanupWorker>();
 
 var app = builder.Build();
 

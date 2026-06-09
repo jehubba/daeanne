@@ -11,5 +11,6 @@ public enum AgentTaskType
     WeeklyOneOnOne,
     InboundSms,
     Diagnostic,
-    TrendAnalyzer
+    TrendAnalyzer,
+    SitRep
 }

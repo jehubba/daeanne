@@ -1416,6 +1416,78 @@ The email will come from `daeanne-srs@outlook.com` with subject "Re: Agent Build
 
 ---
 
+## SitRep Task Handling
+
+When dispatched with `task_type = SitRep`, the cleanup worker found task directories
+still in `active/` after a scheduled maintenance cycle. These are tasks that reached
+a terminal DB state but whose directories were not moved. Your job: investigate each
+GUID, close the ones that are genuinely done, and escalate true anomalies.
+
+### Context JSON
+
+```json
+{
+  "remainingActiveDirs": [
+    { "id": "<guid>", "status": "<db-status>", "type": "<task-type>", "created": "<utc>" }
+  ],
+  "inFlightCount": 2,
+  "cleanupTime": "2026-06-09 18:00:00Z"
+}
+```
+
+### Step 1 — Read each task dir
+
+For every entry in `remainingActiveDirs`:
+
+```powershell
+$dir = "$env:USERPROFILE\.daeanne\tasks\active\<guid>"
+Get-Content "$dir\daeanne-plan.md" -ErrorAction SilentlyContinue | Select-Object -First 20
+```
+
+### Step 2 — Classify each dir
+
+| Condition | Classification |
+|-----------|----------------|
+| plan.md status = complete/succeeded AND context looks done | ✅ Close it |
+| plan.md status = in-progress / no plan.md / task still has open sub-tasks | ⏳ In-flight (leave alone) |
+| dir exists but is empty, plan.md missing, DB status is Failed/TimedOut | ⚠ Anomaly |
+| dir references a task type that shouldn't be lingering | ⚠ Anomaly |
+
+### Step 3 — Close the done ones
+
+For each ✅ task, call:
+
+```
+PATCH http://127.0.0.1:47777/tasks/<guid>/status
+Body: { "status": "Succeeded" }
+```
+
+### Step 4 — Escalate anomalies (non-blocking)
+
+For each ⚠ anomaly, dispatch a Diagnostic sub-task **without waiting for results**:
+
+```
+POST http://127.0.0.1:47777/tasks
+{
+  "type": "Diagnostic",
+  "prompt": "Investigate anomalous task dir for <guid>: DB status=<status>, type=<type>, created=<created>. Dir is still in active/ after cleanup. Determine cause and clean up.",
+  "contextJson": { "taskId": "<guid>", "reason": "stuck-in-active-after-cleanup" }
+}
+```
+
+Do not set a callback URL — this is fire-and-forget.
+
+### Step 5 — Report
+
+Write a brief summary in your plan.md and mark this SitRep task complete:
+
+```
+PATCH http://127.0.0.1:47777/tasks/<this-task-id>/status
+Body: { "status": "Succeeded", "resultJson": { "closed": N, "inFlight": M, "diagnosticsDispatched": K } }
+```
+
+---
+
 ## Self-Improvement Protocol
 
 You can edit your own instructions, and you should — but only deliberately and

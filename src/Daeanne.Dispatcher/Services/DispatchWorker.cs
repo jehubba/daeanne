@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Threading.Channels;
 using Daeanne.Dispatcher.Data;
 using Daeanne.Dispatcher.Endpoints;
@@ -16,7 +15,6 @@ namespace Daeanne.Dispatcher.Services;
 public class DispatchWorker(
     Channel<Guid> queue,
     IAgentDispatcher dispatcher,
-    PreferenceMemoryService preferenceMemory,
     IServiceScopeFactory scopeFactory,
     IOptions<DispatchConfig> config,
     ILogger<DispatchWorker> logger) : BackgroundService
@@ -74,79 +72,47 @@ public class DispatchWorker(
             // Dispatch (DB context intentionally NOT held during long-running process)
             var result = await dispatcher.DispatchAsync(task, ct);
 
-            // Determine final status
-            AgentTaskStatus finalStatus = result.Succeeded
-                ? AgentTaskStatus.Succeeded
-                : (ct.IsCancellationRequested ? AgentTaskStatus.Failed : AgentTaskStatus.Failed);
-
             if (result.Succeeded)
             {
-                try
-                {
-                    preferenceMemory.UpdateFromTaskClose(task);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "Preference update failed for task {TaskId}; continuing completion.", task.Id);
-                }
+                // Process exited cleanly — do NOT mark completion. That is Daeanne's responsibility.
+                // She will call PATCH /tasks/{id}/status → Succeeded when her work is truly done.
+                // The dir stays in active/ until the TaskCleanupWorker moves it after her signal.
+                using var scope = scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<DispatcherDbContext>();
+                var t = await db.Tasks.FindAsync([taskId], ct);
+                if (t?.Status == AgentTaskStatus.Awaiting)
+                    logger.LogInformation("Task {TaskId} process exited but status is Awaiting — leaving suspended.", taskId);
+                else
+                    logger.LogInformation("Task {TaskId} process exited cleanly — awaiting Daeanne's self-report via PATCH.", taskId);
             }
-
-            // Check if the failure was a timeout (error message indicates it)
-            if (!result.Succeeded && result.Error?.Contains("timed out") == true)
-                finalStatus = AgentTaskStatus.TimedOut;
-
-            // Override with agent's self-reported status from daeanne-plan.md frontmatter,
-            // if available. This catches cases where the agent wrote its outcome to the plan
-            // doc but didn't call PATCH /tasks/{id}/status before exiting.
-            var planDoc = TaskDirManager.ReadPlanDoc(_config.ResolvedWorkDir, taskId);
-            if (planDoc is not null)
+            else
             {
-                logger.LogInformation("Task {TaskId} plan doc reports status={Status} — using instead of exit-code heuristic.",
-                    taskId, planDoc.Status);
-                finalStatus = planDoc.Status;
-            }
-
-            // Save result — and move the task dir to its final location
-            using (var scope = scopeFactory.CreateScope())
-            {
+                // Process crashed, timed out, or returned non-zero exit — definitive failure.
+                // DispatchWorker is authoritative for error states; move dir immediately.
+                using var scope = scopeFactory.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<DispatcherDbContext>();
                 var t = await db.Tasks.FindAsync([taskId], ct);
 
-                // Guard: if the agent set itself to Awaiting before exiting, do NOT override.
-                // The task is suspended waiting for a sub-task callback — leave it alone.
-                if (t is not null && !t.IsTerminal() && t.Status != AgentTaskStatus.Awaiting)
+                if (t is not null && !t.IsTerminal())
                 {
-                    // Move dir first, then store the updated workDir in resultJson
+                    var finalStatus = result.Error?.Contains("timed out") == true
+                        ? AgentTaskStatus.TimedOut
+                        : AgentTaskStatus.Failed;
+
                     var newWorkDir = TaskDirManager.MoveToFinalLocation(
                         _config.ResolvedWorkDir, taskId, finalStatus, t.IsScheduled, logger);
 
-                    // If plan doc provided a response, inject it into resultJson
-                    var effectiveResultJson = result.ResultJson;
-                    if (planDoc?.Response is { } planResponse)
-                    {
-                        var merged = string.IsNullOrWhiteSpace(effectiveResultJson)
-                            ? JsonSerializer.Serialize(new { response = planResponse })
-                            : TaskDirManager.MergeResponseIntoResultJson(effectiveResultJson, planResponse);
-                        effectiveResultJson = merged;
-                    }
-
-                    t.Status        = finalStatus;
-                    t.ResultJson    = TaskDirManager.UpdateResultJsonWorkDir(effectiveResultJson, newWorkDir);
-                    t.Error         = result.Error;
-                    t.CompletedAt   = DateTime.UtcNow;
-                    t.UpdatedAt     = DateTime.UtcNow;
-                    t.AgentReported = planDoc is not null;  // plan doc counts as agent self-report
+                    t.Status      = finalStatus;
+                    t.Error       = result.Error;
+                    t.CompletedAt = DateTime.UtcNow;
+                    t.UpdatedAt   = DateTime.UtcNow;
+                    t.ResultJson  = TaskDirManager.UpdateResultJsonWorkDir(t.ResultJson, newWorkDir);
                     await db.SaveChangesAsync(ct);
 
-                    logger.LogInformation("Task {TaskId} → {Status} (dir: {Dir})", taskId, finalStatus, newWorkDir);
+                    logger.LogWarning("Task {TaskId} → {Status}: {Error}", taskId, finalStatus, result.Error);
 
-                    // If this is a sub-task, notify parent
                     if (t.ParentTaskId.HasValue)
                         await TaskEndpoints.TriggerParentResumeAsync(t, db, queue, _config, logger);
-                }
-                else if (t?.Status == AgentTaskStatus.Awaiting)
-                {
-                    logger.LogInformation("Task {TaskId} process exited but status is Awaiting — leaving suspended.", taskId);
                 }
             }
         }

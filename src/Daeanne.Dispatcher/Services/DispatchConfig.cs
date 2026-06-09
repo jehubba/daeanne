@@ -33,6 +33,12 @@ public class DispatchConfig
     /// <summary>Maximum number of tasks that may run concurrently.</summary>
     public int MaxConcurrency { get; set; } = 3;
 
+    /// <summary>
+    /// How often (minutes) TaskCleanupWorker runs to move terminal task dirs and
+    /// dispatch sit-rep tasks for anomalies. Defaults to 60.
+    /// </summary>
+    public int CleanupIntervalMinutes { get; set; } = 60;
+
     /// <summary>Maps AgentTaskType → Copilot CLI agent name (as in ~/.copilot/agents/<name>.agent.md).</summary>
     public Dictionary<string, string> AgentMap { get; set; } = new()
     {

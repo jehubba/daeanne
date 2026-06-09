@@ -146,6 +146,7 @@ public static class TaskEndpoints
         DispatcherDbContext db,
         Channel<Guid> queue,
         IOptions<DispatchConfig> dispatchConfig,
+        PreferenceMemoryService preferenceMemory,
         ILogger<Program> logger)
     {
         var task = await db.Tasks.FindAsync(id);
@@ -160,17 +161,21 @@ public static class TaskEndpoints
             return Results.BadRequest($"Status must be one of: {string.Join(", ", AgentTask.TerminalStatuses)}.");
         }
 
-        var newWorkDir = TaskDirManager.MoveToFinalLocation(
-            dispatchConfig.Value.ResolvedWorkDir, id, newStatus, task.IsScheduled);
-
+        // Update DB status. Do NOT move the task dir here —
+        // TaskCleanupWorker runs on a schedule (default 60 min) and moves dirs for
+        // all terminal tasks, giving file locks time to release before we attempt moves.
         task.Status        = newStatus;
-        task.ResultJson    = TaskDirManager.UpdateResultJsonWorkDir(request.ResultJson, newWorkDir);
+        task.ResultJson    = request.ResultJson;
         task.Error         = request.Error;
         task.CompletedAt   = DateTime.UtcNow;
         task.UpdatedAt     = DateTime.UtcNow;
         task.AgentReported = true;   // Daeanne explicitly called this endpoint
 
         await db.SaveChangesAsync();
+
+        // Update preference memory from completed task (Daeanne's signal is authoritative)
+        try { preferenceMemory.UpdateFromTaskClose(task); }
+        catch (Exception ex) { logger.LogWarning(ex, "Preference update failed for task {Id}; non-fatal.", id); }
 
         // If this is a sub-task, notify the parent
         if (task.ParentTaskId.HasValue)
@@ -325,7 +330,8 @@ public static class TaskEndpoints
         DispatcherDbContext db,
         IAgentDispatcher dispatcher,
         IOptions<DispatchConfig> dispatchConfig,
-        IServiceScopeFactory scopeFactory)
+        IServiceScopeFactory scopeFactory,
+        ILogger<Program> logger)
     {
         var task = await db.Tasks.FindAsync(id);
         if (task is null) return Results.NotFound();
@@ -358,23 +364,31 @@ public static class TaskEndpoints
         _ = Task.Run(async () =>
         {
             var result = await dispatcher.TryResumeAsync(task, activeDir);
-            result ??= new DispatchResult(false, null, "No session ID found in session.md.");
 
-            var finalStatus = result.Succeeded ? AgentTaskStatus.Succeeded : AgentTaskStatus.Failed;
-            var newWorkDir  = TaskDirManager.MoveToFinalLocation(
-                dispatchConfig.Value.ResolvedWorkDir, id, finalStatus, task.IsScheduled);
-
-            using var scope = scopeFactory.CreateScope();
-            var freshDb = scope.ServiceProvider.GetRequiredService<DispatcherDbContext>();
-            var t = await freshDb.Tasks.FindAsync(id);
-            if (t is not null)
+            if (result is null || !result.Succeeded)
             {
-                t.Status      = finalStatus;
-                t.ResultJson  = TaskDirManager.UpdateResultJsonWorkDir(result.ResultJson, newWorkDir);
-                t.Error       = result.Error;
-                t.CompletedAt = DateTime.UtcNow;
-                t.UpdatedAt   = DateTime.UtcNow;
-                await freshDb.SaveChangesAsync();
+                // Resume failed — mark the error but leave completion to Daeanne.
+                // Only force-fail if the resume process itself errored out.
+                using var scope = scopeFactory.CreateScope();
+                var freshDb = scope.ServiceProvider.GetRequiredService<DispatcherDbContext>();
+                var t = await freshDb.Tasks.FindAsync(id);
+                if (t is not null && !t.IsTerminal())
+                {
+                    var errorMsg = result?.Error ?? "Resume process returned no result.";
+                    var newWorkDir = TaskDirManager.MoveToFinalLocation(
+                        dispatchConfig.Value.ResolvedWorkDir, id, AgentTaskStatus.Failed, task.IsScheduled);
+                    t.Status      = AgentTaskStatus.Failed;
+                    t.Error       = errorMsg;
+                    t.ResultJson  = TaskDirManager.UpdateResultJsonWorkDir(t.ResultJson, newWorkDir);
+                    t.CompletedAt = DateTime.UtcNow;
+                    t.UpdatedAt   = DateTime.UtcNow;
+                    await freshDb.SaveChangesAsync();
+                }
+            }
+            else
+            {
+                // Resume process exited cleanly — leave Running, await Daeanne's PATCH.
+                logger.LogInformation("Task {Id} resume process exited cleanly — awaiting Daeanne's self-report.", id);
             }
         });
 
