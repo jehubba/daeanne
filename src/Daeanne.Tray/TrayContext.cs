@@ -17,6 +17,7 @@ internal class TrayContext : ApplicationContext
 
     // Track last-seen task statuses to detect transitions
     private Dictionary<string, string> _lastTaskStatuses = new();
+    private bool _firstPoll = true;
 
     // Icon state
     private enum TrayState { Green, Orange, Red }
@@ -104,19 +105,29 @@ internal class TrayContext : ApplicationContext
             var cutoff  = DateTime.UtcNow.AddHours(-1);
             var newStatuses = tasks.ToDictionary(t => t.Id, t => t.Status ?? "");
 
-            // Detect transitions to terminal states since last poll → balloon tip
-            foreach (var t in tasks)
+            if (_firstPoll)
             {
-                var isNewlyTerminal =
-                    (t.Status == "Succeeded" || t.Status == "Failed" || t.Status == "TimedOut") &&
-                    (!_lastTaskStatuses.TryGetValue(t.Id, out var prev) ||
-                     (prev != "Succeeded" && prev != "Failed" && prev != "TimedOut"));
-
-                if (isNewlyTerminal)
-                    ShowBalloon(t);
+                // Seed known statuses silently — don't balloon things that already happened
+                _firstPoll = false;
+                _lastTaskStatuses = newStatuses;
+                _trayIcon.ShowBalloonTip(3000, "Daeanne", "Tray monitor started.", ToolTipIcon.Info);
             }
+            else
+            {
+                // Detect transitions to terminal states since last poll → balloon tip
+                foreach (var t in tasks)
+                {
+                    var isNewlyTerminal =
+                        (t.Status == "Succeeded" || t.Status == "Failed" || t.Status == "TimedOut") &&
+                        (!_lastTaskStatuses.TryGetValue(t.Id, out var prev) ||
+                         (prev != "Succeeded" && prev != "Failed" && prev != "TimedOut"));
 
-            _lastTaskStatuses = newStatuses;
+                    if (isNewlyTerminal)
+                        ShowBalloon(t);
+                }
+
+                _lastTaskStatuses = newStatuses;
+            }
 
             return tasks.Any(t =>
                 (t.Status == "Failed" || t.Status == "TimedOut") &&
