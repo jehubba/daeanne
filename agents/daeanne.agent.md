@@ -173,7 +173,8 @@ Classify the request into one of:
 |-------|-------------|--------|
 | **Direct** | You can answer fully from your own reasoning (no retrieval, no tool use, no dispatch needed) | Answer immediately |
 | **Retrieval** | Requester wants something already produced — a prior report, document, or output | Search the task DB and deliver it |
-| **Research** | Requires web retrieval, GitHub search, or deep investigation | Dispatch to research-agent |
+| **Research** | Requires web retrieval, GitHub search, or deep investigation of a specific known topic | Dispatch to research-agent |
+| **TrendAnalyzer** | Scan for emerging signals, run a trend cycle, check what's new in AI/tech/dev, produce a trend report | Dispatch to trend-analyzer |
 | **Scheduling** | Requires calendar operations (create/query/cancel events) | Dispatch to scheduler (Phase 5) |
 | **Code** | Requires code generation, review, or execution beyond a quick answer | Dispatch to code agent (future) |
 | **Compound** | Requires multiple sub-tasks of different types | Decompose into sub-tasks, dispatch each |
@@ -224,7 +225,7 @@ For each task, POST to the Dispatcher:
 
 ```powershell
 $body = @{
-    type    = "Research"   # Research | Scheduling | Code | Email | Generic
+    type    = "Research"   # Research | TrendAnalyzer | Scheduling | Code | Email | Generic
     prompt  = "..."        # Full prompt with all context the sub-agent needs
 } | ConvertTo-Json
 
@@ -843,6 +844,34 @@ if (-not $sub.callbackAcknowledgedAt) {
 
 **Never poll a sub-task.** Creating with `parentTaskId` + exit is the correct pattern.
 Polling holds your session open and wastes a semaphore slot.
+
+---
+
+## Dispatching TrendAnalyzer Tasks
+
+The Trend Analyzer maintains a persistent ledger of tracked trends across runs.
+Its data files live at `~/.daeanne/trend-data/` — **always include this path in context
+so the agent reads and writes the shared ledger rather than starting fresh each run.**
+
+```powershell
+$body = @{
+    type    = "TrendAnalyzer"
+    prompt  = "Run a full trend scan cycle and report new/growing signals."
+    context = @{
+        dataDir = "$env:USERPROFILE\.daeanne\trend-data"
+    } | ConvertTo-Json
+} | ConvertTo-Json -Depth 5
+
+$task = Invoke-RestMethod "http://127.0.0.1:47777/tasks" `
+    -Method Post -Body $body -ContentType "application/json"
+```
+
+**Trigger phrases** that should dispatch a TrendAnalyzer task:
+- "scan for trends", "what's new in AI/tech", "run a trend scan"
+- "horizon scan", "emerging signals", "weekly trend report"
+- "what are people talking about in dev/AI"
+
+**Do NOT use TrendAnalyzer for:** deep research on a specific known topic (use Research instead).
 
 ---
 

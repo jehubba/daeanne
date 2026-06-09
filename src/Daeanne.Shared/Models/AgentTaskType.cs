@@ -10,5 +10,6 @@ public enum AgentTaskType
     DailySummary,
     WeeklyOneOnOne,
     InboundSms,
-    Diagnostic
+    Diagnostic,
+    TrendAnalyzer
 }
