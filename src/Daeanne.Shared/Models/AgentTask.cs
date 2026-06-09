@@ -61,7 +61,7 @@ public class AgentTask
     public bool AgentReported { get; set; } = false;
 
     public static readonly AgentTaskStatus[] TerminalStatuses =
-        [AgentTaskStatus.Succeeded, AgentTaskStatus.Partial, AgentTaskStatus.Failed, AgentTaskStatus.TimedOut];
+        [AgentTaskStatus.Succeeded, AgentTaskStatus.Partial, AgentTaskStatus.Failed, AgentTaskStatus.TimedOut, AgentTaskStatus.Escalated];
 
     public bool IsTerminal() => TerminalStatuses.Contains(Status);
 }

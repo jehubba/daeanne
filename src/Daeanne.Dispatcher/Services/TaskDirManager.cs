@@ -49,9 +49,9 @@ public static class TaskDirManager
     public static string PathForStatus(string baseDir, Guid id, AgentTaskStatus status, bool isScheduled = false) =>
         status switch
         {
-            AgentTaskStatus.Succeeded                          => CompletePath(baseDir, id, isScheduled),
-            AgentTaskStatus.Failed or AgentTaskStatus.TimedOut => FailedPath(baseDir, id, isScheduled),
-            _                                                  => ActivePath(baseDir, id, isScheduled)
+            AgentTaskStatus.Succeeded or AgentTaskStatus.Escalated => CompletePath(baseDir, id, isScheduled),
+            AgentTaskStatus.Failed or AgentTaskStatus.TimedOut     => FailedPath(baseDir, id, isScheduled),
+            _                                                       => ActivePath(baseDir, id, isScheduled)
         };
 
     /// <summary>

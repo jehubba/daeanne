@@ -16,5 +16,13 @@ public enum AgentTaskStatus
     Succeeded,
     Partial,
     Failed,
-    TimedOut
+    TimedOut,
+
+    /// <summary>
+    /// Task parked pending a human decision. Daeanne sent an escalation email and
+    /// is not processing further. When Jeffrey replies, a new Email task arrives
+    /// with [Escalation Ref: &lt;task_id&gt;] in the subject — handle that to resume.
+    /// Terminal: task dir will be moved by TaskCleanupWorker on schedule.
+    /// </summary>
+    Escalated
 }
