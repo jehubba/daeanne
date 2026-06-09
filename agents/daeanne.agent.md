@@ -648,6 +648,95 @@ Done. Here's what I found.
 
 ---
 
+## Diagnostic Task Handling
+
+When dispatched with `task_type = Diagnostic`, your job is to investigate a failed or
+timed-out task, determine the root cause, and either fix it or escalate.
+
+### Step 1 — Locate the target task
+
+The task prompt will contain a `targetTaskId`, `status`, `error`, and `workDir`.
+
+```powershell
+# Get full task record from Dispatcher
+$target = Invoke-RestMethod "http://127.0.0.1:47777/tasks/$targetTaskId"
+Write-Host "Target: $($target.type) — $($target.status)"
+Write-Host "Error : $($target.error)"
+Write-Host "Dir   : $($target.resultJson | ConvertFrom-Json -ErrorAction SilentlyContinue | Select-Object -ExpandProperty workDir)"
+```
+
+### Step 2 — Read the work directory
+
+```powershell
+$workDir = ($target.resultJson | ConvertFrom-Json -ErrorAction SilentlyContinue).workDir
+if ($workDir -and (Test-Path $workDir)) {
+    # Plan doc — what Daeanne intended and where she stopped
+    $planDoc = Get-ChildItem $workDir -Filter "daeanne-plan.md" -ErrorAction SilentlyContinue
+    if ($planDoc) { Get-Content $planDoc.FullName }
+
+    # Context — original prompt and email metadata
+    $ctx = Get-ChildItem $workDir -Filter "context.json" -ErrorAction SilentlyContinue
+    if ($ctx) { Get-Content $ctx.FullName | ConvertFrom-Json }
+
+    # Session — where the agent session was when it stopped
+    $session = Get-ChildItem $workDir -Filter "session.md" -ErrorAction SilentlyContinue
+    if ($session) { Get-Content $session.FullName | Select-Object -Last 40 }
+
+    # Any output files
+    Get-ChildItem $workDir -File | Where-Object { $_.Name -notmatch "^(context|session|daeanne-plan)" }
+}
+```
+
+### Step 3 — Classify the failure
+
+| Failure class | Signs | Typical fix |
+|---------------|-------|-------------|
+| **Timeout** | `status = TimedOut`, plan doc shows work in progress | Resubmit with scope reduced or broken into sub-tasks |
+| **Tool failure** | Error mentions HTTP, API, PowerShell exception | Check if service is reachable; retry or escalate |
+| **Bad prompt** | Agent appeared confused or produced wrong output type | Resubmit with clarified prompt |
+| **Sub-task failure** | Callback file shows `succeeded: false` | Resubmit the sub-task, not the parent |
+| **Environment** | Path missing, config absent, permission denied | Escalate — needs human fix |
+| **Unknown** | No plan doc, no output, silent exit | Escalate with summary of what's missing |
+
+### Step 4 — Decide and act
+
+**Resubmit** — create a new task of the same type with a corrected prompt:
+```powershell
+$newTask = Invoke-RestMethod "http://127.0.0.1:47777/tasks" -Method Post `
+  -Body (ConvertTo-Json @{
+      type   = $target.type.ToString()
+      prompt = "RETRY (diagnostic correction): <revised prompt based on root cause>"
+  }) -ContentType "application/json"
+Write-Host "Resubmitted as task $($newTask.id)"
+```
+
+**Escalate** — email Jeffrey a concise root cause summary:
+```powershell
+# Use standard outbound email pattern (see Outbound Email section)
+# Subject: "⚠ Task failed: {original type} — {brief topic}"
+# Body: root cause, what you tried, recommendation
+```
+
+**Both** — resubmit AND notify. Use this when the original task was user-facing
+(e.g., a research email that never arrived) and Jeffrey needs to know it's being retried.
+
+### Step 5 — Mark this Diagnostic task
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:47777/tasks/$($env:TASK_ID)/result" -Method Post `
+  -Body (ConvertTo-Json @{
+      status     = "Succeeded"
+      resultJson = (ConvertTo-Json @{
+          targetTaskId = $targetTaskId
+          rootCause    = "<one sentence>"
+          action       = "Resubmitted" # or "Escalated" or "Both"
+          newTaskId    = $newTask?.id   # if resubmitted
+      })
+  }) -ContentType "application/json"
+```
+
+---
+
 ## Async Sub-Task Dispatch (Fire and Don't Block)
 
 When a task requires work from another specialized agent, dispatch it as a sub-task

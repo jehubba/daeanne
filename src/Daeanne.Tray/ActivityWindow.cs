@@ -81,10 +81,28 @@ internal class ActivityWindow : Form
         _taskList.Columns.Add("Error",    160);
 
         var rowMenu = new ContextMenuStrip { BackColor = Color.FromArgb(45, 45, 45) };
-        rowMenu.Items.Add("Open Work Dir",       null, OnOpenWorkDir);
-        rowMenu.Items.Add("Copy Task ID",        null, OnCopyTaskId);
+        rowMenu.Items.Add("Open Work Dir",             null, OnOpenWorkDir);
+        rowMenu.Items.Add("Copy Task ID",              null, OnCopyTaskId);
         rowMenu.Items.Add(new ToolStripSeparator());
-        rowMenu.Items.Add("Troubleshoot with Daeanne", null, OnTroubleshoot);
+        var troubleshootItem = (ToolStripMenuItem)rowMenu.Items.Add("Troubleshoot with Daeanne", null, OnTroubleshoot);
+
+        // Enable Troubleshoot only for terminal failure states
+        rowMenu.Opening += (_, _) =>
+        {
+            var t = SelectedTask();
+            troubleshootItem.Enabled = t?.Status is "Failed" or "TimedOut";
+        };
+
+        // Error tooltip on the ListView
+        var errorTip = new ToolTip { AutoPopDelay = 10000, InitialDelay = 400 };
+        _taskList.MouseMove += (_, me) =>
+        {
+            var hit = _taskList.HitTest(me.Location);
+            if (hit.SubItem is not null && hit.Item?.Tag is TaskSummary ts && !string.IsNullOrWhiteSpace(ts.Error))
+                errorTip.SetToolTip(_taskList, ts.Error);
+            else
+                errorTip.SetToolTip(_taskList, "");
+        };
 
         _taskList.ContextMenuStrip = rowMenu;
         _taskList.DoubleClick     += OnOpenWorkDir;
