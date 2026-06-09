@@ -9,10 +9,9 @@ namespace Daeanne.Tray;
 /// </summary>
 internal class TrayContext : ApplicationContext
 {
-    private readonly NotifyIcon   _trayIcon;
-    private readonly HttpClient   _http = new() { Timeout = TimeSpan.FromSeconds(5) };
+    private readonly NotifyIcon    _trayIcon;
+    private readonly HttpClient    _http = new() { Timeout = TimeSpan.FromSeconds(5) };
     private readonly PeriodicTimer _timer = new(TimeSpan.FromSeconds(30));
-    private readonly SynchronizationContext _ui;
 
     private ActivityWindow? _activityWindow;
 
@@ -25,7 +24,6 @@ internal class TrayContext : ApplicationContext
 
     public TrayContext()
     {
-        _ui = SynchronizationContext.Current!;
         var menu = new ContextMenuStrip();
         menu.Items.Add("View Activity",   null, OnOpenActivity);
         menu.Items.Add(new ToolStripSeparator());
@@ -67,25 +65,22 @@ internal class TrayContext : ApplicationContext
                      : (!dispatcherOk || !bridgeOk || recentFailure) ? TrayState.Orange
                      : TrayState.Green;
 
-        // Update icon + tooltip on UI thread
-        _ui.Post(_ =>
+        // Update icon + tooltip directly — NotifyIcon wraps Win32 and is safe from any thread
+        _currentState    = newState;
+        _trayIcon.Icon   = newState switch
         {
-            _currentState    = newState;
-            _trayIcon.Icon   = newState switch
-            {
-                TrayState.Red    => IconLoader.Red,
-                TrayState.Orange => IconLoader.Orange,
-                _                => IconLoader.Green
-            };
+            TrayState.Red    => IconLoader.Red,
+            TrayState.Orange => IconLoader.Orange,
+            _                => IconLoader.Green
+        };
 
-            var statusText = newState switch
-            {
-                TrayState.Red    => "⚠ Services unreachable",
-                TrayState.Orange => "⚠ Degraded",
-                _                => "Healthy"
-            };
-            _trayIcon.Text = $"Daeanne — {statusText}";
-        }, null);
+        var statusText = newState switch
+        {
+            TrayState.Red    => "⚠ Services unreachable",
+            TrayState.Orange => "⚠ Degraded",
+            _                => "Healthy"
+        };
+        _trayIcon.Text = $"Daeanne — {statusText}";
     }
 
     private async Task<bool> CheckHealthAsync(string url)
@@ -138,8 +133,7 @@ internal class TrayContext : ApplicationContext
             ? "Completed successfully."
             : $"Failed: {t.Error?.Truncate(80) ?? "unknown error"}";
 
-        _ui.Post(_ =>
-            _trayIcon.ShowBalloonTip(4000, title, text, icon), null);
+        _trayIcon.ShowBalloonTip(4000, title, text, icon);
     }
 
     private void OnOpenActivity(object? sender, EventArgs e)
