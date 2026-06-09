@@ -421,6 +421,12 @@ public class GraphMailWorker(
             ct);
     }
 
+    /// <summary>
+    /// Sends a threaded reply using Graph's createReply → PATCH body → send pattern.
+    /// This is the only reliable way to get proper In-Reply-To / References headers:
+    /// Graph sets them when creating the draft, so email clients thread correctly.
+    /// The raw MIME /reply approach sends successfully but omits threading headers.
+    /// </summary>
     private async Task<HttpResponseMessage> SendMultipartReplyAsync(
         HttpClient graphHttp,
         string replyToGraphMessageId,
@@ -428,18 +434,41 @@ public class GraphMailWorker(
         EmailBodyFormatter.FormattedBody body,
         CancellationToken ct)
     {
-        // Graph /reply with MIME still requires To: and Subject: headers in the MIME body.
-        // Omitting them produces ErrorInvalidRecipients even though the original message
-        // already has a recipient.
-        var mime = BuildMultipartAlternativeMime(
-            to: email.To,
-            subject: email.Subject,
-            plainText: body.PlainText,
-            html: body.Html);
+        // Step 1 — create draft reply (Graph injects In-Reply-To + References)
+        var createResp = await graphHttp.PostAsync(
+            $"{GraphBase}/me/messages/{Uri.EscapeDataString(replyToGraphMessageId)}/createReply",
+            new StringContent("{}", Encoding.UTF8, "application/json"),
+            ct);
 
+        if (!createResp.IsSuccessStatusCode)
+            return createResp;   // caller checks IsSuccessStatusCode
+
+        using var createDoc = JsonDocument.Parse(await createResp.Content.ReadAsStringAsync(ct));
+        var draftId = createDoc.RootElement.GetProperty("id").GetString()
+            ?? throw new InvalidOperationException("createReply returned no draft id.");
+
+        // Step 2 — patch the draft with our formatted body
+        var patchPayload = JsonSerializer.Serialize(new
+        {
+            subject = email.Subject,
+            body    = new { contentType = "html", content = body.Html }
+        });
+        var patchResp = await graphHttp.PatchAsync(
+            $"{GraphBase}/me/messages/{Uri.EscapeDataString(draftId)}",
+            new StringContent(patchPayload, Encoding.UTF8, "application/json"),
+            ct);
+
+        if (!patchResp.IsSuccessStatusCode)
+        {
+            // Clean up orphaned draft
+            await graphHttp.DeleteAsync($"{GraphBase}/me/messages/{Uri.EscapeDataString(draftId)}", ct);
+            return patchResp;
+        }
+
+        // Step 3 — send the draft
         return await graphHttp.PostAsync(
-            $"{GraphBase}/me/messages/{Uri.EscapeDataString(replyToGraphMessageId)}/reply",
-            new StringContent(ToGraphMimePayload(mime), Encoding.UTF8, "text/plain"),
+            $"{GraphBase}/me/messages/{Uri.EscapeDataString(draftId)}/send",
+            new StringContent("{}", Encoding.UTF8, "application/json"),
             ct);
     }
 
