@@ -1,7 +1,7 @@
 # Daeanne — Agent OS Architecture Overview
 
-**Last updated:** 2026-06-07
-**Status:** Active design — pre-implementation
+**Last updated:** 2026-06-09
+**Status:** Live — operational
 
 ---
 
@@ -19,25 +19,43 @@ designed for a single user on a Windows machine with M365 integration.
 ## System Diagram
 
 ```
-INBOUND EMAIL
+INBOUND EMAIL (live path)
+─────────────────────────────────────────────────────────────────
+  Email → daeanne-srs@outlook.com
+    → GraphMailWorker (polls inbox every 60s via Microsoft Graph)
+    → BlockedSendersStore (static config + dynamic JSON allowlist)
+    → Daeanne.Bridge (Windows Service)    [local]
+    → Kestrel Dispatcher (.local:47777)   [local]
+    → Daeanne (CoS Agent)                 [local]
+
+INBOUND EMAIL (stub — not active)
 ─────────────────────────────────────────────────────────────────
   Email
-    → Azure Communication Services (ACS)
-    → Azure Function: email-ingest        [cloud]
+    → Azure Communication Services (ACS) — private preview, not available
+    → Azure Function: email-ingest        [cloud, STUB]
     → Service Bus: inbound queue          [cloud]
-    → Daeanne.Bridge (Windows Service)    [local]
-    → Kestrel Dispatcher (.local:port)    [local]
-    → Daeanne (CoS Agent)                 [local, persistent]
+    → (would flow to Bridge → Dispatcher → Daeanne)
+    NOTE: ACS inbound email is private preview. EmailIngestFunction
+          is a stub. Graph polling above is the live path.
 
-OUTBOUND EMAIL
+OUTBOUND EMAIL (live path)
 ─────────────────────────────────────────────────────────────────
   Daeanne (CoS Agent)
     → Kestrel Dispatcher: POST /outbox/email
-    → Daeanne.Bridge (Windows Service)    [local]
-    → Service Bus: outbound queue         [cloud]
-    → Azure Function: email-send          [cloud]
+    → GraphMailWorker polls outbox every 10s (Daeanne.Bridge)  [local]
+    → Microsoft Graph sendMail API
+    → Email
+
+OUTBOUND EMAIL (stub — not active)
+─────────────────────────────────────────────────────────────────
+  Daeanne (CoS Agent)
+    → Kestrel Dispatcher: POST /outbox/email
+    → Daeanne.Bridge BridgeWorker → Service Bus: outbound queue   [cloud]
+    → Azure Function: email-send                                  [cloud]
     → Azure Communication Services (ACS)
     → Email
+  NOTE: BridgeWorker runs in DISABLED mode when ConnectionStrings:ServiceBus
+        is not configured. GraphMailWorker handles outbound directly.
 
 INTERNAL ORCHESTRATION
 ─────────────────────────────────────────────────────────────────
@@ -167,18 +185,30 @@ CALENDAR / M365
 
 ---
 
-## What Doesn't Exist Yet
+## Implementation Status
 
-- [ ] Daeanne.Dispatcher (.NET project)
-- [ ] Daeanne.Bridge (.NET project)
-- [ ] Daeanne agent profile (daeanne.agent.md)
+### Live
+
+- [x] Daeanne.Dispatcher (.NET Kestrel, SQLite task DB, Windows Service)
+- [x] Daeanne.Bridge (.NET Worker Service — GraphMailWorker for inbound + outbound via Graph, Windows Service)
+- [x] Daeanne agent profile (daeanne.agent.md)
+- [x] SQLite schema for task queue
+
+### Stub / Partial
+
+- [~] Azure Function: email-ingest — stub; ACS inbound email is private preview; Graph polling used instead
+- [~] Azure Function: email-send — stub; BridgeWorker (Service Bus path) disabled when SB connection string absent; GraphMailWorker sends outbound directly via Graph sendMail
+- [~] Azure Communication Services — outbound only; ACS inbound email private preview (not active)
+- [~] Service Bus queues — provisioned; BridgeWorker disabled; not used in practice
 - [ ] Scheduler sub-agent
-- [ ] Azure Function: email-ingest
-- [ ] Azure Function: email-send
-- [ ] Azure Communication Services setup
-- [ ] Service Bus queues (inbound + outbound)
-- [ ] SQLite schema for task queue
 - [ ] Keep-alive strategy for persistent Daeanne process
+
+### Not Started
+
+- [ ] Sender allowlist (currently blocklist-only)
+- [ ] Prompt injection mitigations
+- [ ] Dispatcher API authentication
+- [ ] Rate limiting on task ingestion
 
 ---
 

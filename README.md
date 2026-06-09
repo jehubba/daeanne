@@ -42,6 +42,48 @@ You can also update it with:
 .\scripts\Update-DaeannePreference.ps1 -Category Communication -Key tone -Value "direct, no pleasantries"
 ```
 
+## Security
+
+### Ingress — how email reaches Daeanne
+
+The **actual** inbound path (as of 2026-06):
+
+```
+Email → daeanne-srs@outlook.com (Outlook personal account)
+  → GraphMailWorker polls inbox every 60s via Microsoft Graph API (OAuth2)
+  → BlockedSendersStore: two-tier filter
+      Tier 1 — static config (Graph:IgnoredSenders): domain/address patterns set in appsettings
+      Tier 2 — dynamic JSON (%APPDATA%\daeanne\blocked-senders.json): Daeanne-managed +
+               auto-detected no-reply/notification patterns
+  → POST /tasks to Kestrel Dispatcher (127.0.0.1:47777)
+  → Dispatcher creates AgentTask (type=Email)
+  → Daeanne agent processes it
+```
+
+> **Note:** `Daeanne.Functions/EmailIngestFunction` (ACS EventGrid path) is a stub — ACS
+> inbound email is private preview and not active. The Graph polling path above is the
+> live implementation.
+
+### What is protected
+
+| Control | Details |
+|---------|---------|
+| **Localhost-only Dispatcher** | Kestrel binds to `127.0.0.1:47777` — not reachable from the network |
+| **No outbound network exposure** | No port forwarding, no public endpoint for the Dispatcher |
+| **Blocked senders (two-tier)** | Static config patterns + dynamic agent-managed list with no-reply auto-detection |
+| **Microsoft Graph auth** | OAuth2 refresh token; token persisted to `%APPDATA%\daeanne\graph-token.json` |
+| **Outbound email via Graph** | Replies are sent through the same account; no unauthenticated SMTP |
+
+### Known gaps / no mitigations yet
+
+| Gap | Risk |
+|-----|------|
+| **No sender allowlist** | Any email to `daeanne-srs@outlook.com` creates an agent task (blocklist only) |
+| **Prompt injection via email** | Email body is passed directly to Daeanne with no sanitization |
+| **Refresh token on disk (unencrypted)** | `%APPDATA%\daeanne\graph-token.json` — readable by any process running as the user |
+| **No rate limiting** | No cap on how many tasks can be created per sender per time window |
+| **Dispatcher API unauthenticated** | `127.0.0.1:47777` has no auth — any local process can submit tasks or read task history |
+
 ## Repo Structure
 
 ```

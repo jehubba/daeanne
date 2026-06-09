@@ -12,6 +12,7 @@
     <PackageReference Include="Markdig" Version="1.2.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.*" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="8.*" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="*" />
   </ItemGroup>
 
   <ItemGroup>
