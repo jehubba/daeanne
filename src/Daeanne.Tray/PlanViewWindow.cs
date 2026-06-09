@@ -54,7 +54,9 @@ internal class PlanViewWindow : Form
             DrawMode  = TabDrawMode.OwnerDrawFixed,
             SizeMode  = TabSizeMode.Fixed,
             ItemSize  = new Size(130, 26),
+            Appearance = TabAppearance.FlatButtons,
             BackColor = Color.FromArgb(28, 28, 30),
+            Padding   = new Point(10, 4),
         };
 
         // Owner-draw tabs for dark theme
@@ -64,9 +66,16 @@ internal class PlanViewWindow : Form
             var bg = selected ? Color.FromArgb(50, 50, 54) : Color.FromArgb(36, 36, 40);
             using var bgBrush = new SolidBrush(bg);
             e.Graphics.FillRectangle(bgBrush, e.Bounds);
-            var fg = selected ? Color.White : Color.FromArgb(170, 170, 175);
+            var fg = selected ? Color.White : Color.FromArgb(160, 160, 165);
             TextRenderer.DrawText(e.Graphics, tabs.TabPages[e.Index].Text, tabs.Font,
                 e.Bounds, fg, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        };
+
+        // Paint the tab strip background dark
+        tabs.Paint += (_, e) =>
+        {
+            using var bg = new SolidBrush(Color.FromArgb(36, 36, 40));
+            e.Graphics.FillRectangle(bg, e.ClipRectangle);
         };
 
         Controls.Add(tabs);
@@ -142,20 +151,25 @@ internal class PlanViewWindow : Form
 
         if (renderMarkdown)
         {
+            var html    = BuildHtml(content, label, filePath);
             var browser = new WebBrowser
             {
-                Dock             = DockStyle.Fill,
-                ScrollBarsEnabled = true,
+                Dock                           = DockStyle.Fill,
+                ScrollBarsEnabled              = true,
                 IsWebBrowserContextMenuEnabled = false,
-                WebBrowserShortcutsEnabled = false,
+                WebBrowserShortcutsEnabled     = false,
+                AllowNavigation                = true,
             };
             page.Controls.Add(browser);
-            // Navigate after handle created to avoid IE init race
-            browser.HandleCreated += (_, _) =>
+
+            // Navigate to blank first, then write HTML on DocumentCompleted
+            browser.DocumentCompleted += (_, _) =>
             {
-                var html = BuildHtml(content, label, filePath);
-                browser.DocumentText = html;
+                if (browser.Document is null) return;
+                browser.Document.OpenNew(false);
+                browser.Document.Write(html);
             };
+            browser.Navigate("about:blank");
         }
         else
         {
