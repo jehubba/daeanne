@@ -38,6 +38,9 @@ namespace Daeanne.Dispatcher.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("AgentReported")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Error")
                         .HasColumnType("TEXT");
 

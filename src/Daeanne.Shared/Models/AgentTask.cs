@@ -53,6 +53,13 @@ public class AgentTask
     public string? ResultJson { get; set; }
     public string? Error { get; set; }
 
+    /// <summary>
+    /// True when the agent explicitly called PATCH /tasks/{id}/status to report its outcome.
+    /// False (default) means the dispatcher auto-marked it based on process exit code.
+    /// An auto-marked Succeeded task may not have actually completed its goal.
+    /// </summary>
+    public bool AgentReported { get; set; } = false;
+
     public static readonly AgentTaskStatus[] TerminalStatuses =
         [AgentTaskStatus.Succeeded, AgentTaskStatus.Partial, AgentTaskStatus.Failed, AgentTaskStatus.TimedOut];
 

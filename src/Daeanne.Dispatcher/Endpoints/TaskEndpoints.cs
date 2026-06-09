@@ -26,6 +26,7 @@ public static class TaskEndpoints
     private static async Task<IResult> GetTasks(
         DispatcherDbContext db,
         string? status,
+        string? type,
         int take = 50,
         int skip = 0)
     {
@@ -35,6 +36,12 @@ public static class TaskEndpoints
             Enum.TryParse<AgentTaskStatus>(status, ignoreCase: true, out var parsed))
         {
             query = query.Where(t => t.Status == parsed);
+        }
+
+        if (!string.IsNullOrWhiteSpace(type) &&
+            Enum.TryParse<AgentTaskType>(type, ignoreCase: true, out var parsedType))
+        {
+            query = query.Where(t => t.Type == parsedType);
         }
 
         var tasks = await query
@@ -156,11 +163,12 @@ public static class TaskEndpoints
         var newWorkDir = TaskDirManager.MoveToFinalLocation(
             dispatchConfig.Value.ResolvedWorkDir, id, newStatus, task.IsScheduled);
 
-        task.Status      = newStatus;
-        task.ResultJson  = TaskDirManager.UpdateResultJsonWorkDir(request.ResultJson, newWorkDir);
-        task.Error       = request.Error;
-        task.CompletedAt = DateTime.UtcNow;
-        task.UpdatedAt   = DateTime.UtcNow;
+        task.Status        = newStatus;
+        task.ResultJson    = TaskDirManager.UpdateResultJsonWorkDir(request.ResultJson, newWorkDir);
+        task.Error         = request.Error;
+        task.CompletedAt   = DateTime.UtcNow;
+        task.UpdatedAt     = DateTime.UtcNow;
+        task.AgentReported = true;   // Daeanne explicitly called this endpoint
 
         await db.SaveChangesAsync();
 

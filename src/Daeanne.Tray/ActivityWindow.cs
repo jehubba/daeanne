@@ -251,12 +251,14 @@ internal class ActivityWindow : Form
 
                 item.ForeColor = (t.Status ?? "") switch
                 {
-                    "Succeeded" => Color.FromArgb(100, 220, 100),
-                    "Partial"   => Color.FromArgb(255, 185, 60),
-                    "Failed" or "TimedOut" => Color.FromArgb(255, 100, 80),
-                    "Running"  => Color.FromArgb(100, 180, 255),
-                    "Awaiting" => Color.FromArgb(200, 160, 255),
-                    _ => Color.FromArgb(200, 200, 200)
+                    // Bright green = Daeanne confirmed; dim green = dispatcher auto-marked
+                    "Succeeded" when t.AgentReported  => Color.FromArgb(80, 220, 90),
+                    "Succeeded"                        => Color.FromArgb(110, 160, 110),
+                    "Partial"                          => Color.FromArgb(255, 185, 60),
+                    "Failed" or "TimedOut"             => Color.FromArgb(255, 100, 80),
+                    "Running"                          => Color.FromArgb(100, 180, 255),
+                    "Awaiting"                         => Color.FromArgb(200, 160, 255),
+                    _                                  => Color.FromArgb(200, 200, 200)
                 };
 
                 // Dim the note text slightly relative to status color
@@ -283,25 +285,43 @@ internal class ActivityWindow : Form
 
         var lines = new List<string>();
         if (!string.IsNullOrWhiteSpace(t.Id))
-            lines.Add($"Task ID : {t.Id}");
+            lines.Add($"Task ID  : {t.Id}");
+        lines.Add($"Reported : {(t.AgentReported ? "✔ Daeanne confirmed" : "⚠ Auto-marked by dispatcher (unconfirmed)")}");
         if (!string.IsNullOrWhiteSpace(t.WorkDir))
-            lines.Add($"Work Dir: {t.WorkDir}");
+            lines.Add($"Work Dir : {t.WorkDir}");
         if (!string.IsNullOrWhiteSpace(t.Error))
-            lines.Add($"Error   : {t.Error}");
+            lines.Add($"Error    : {t.Error}");
 
-        // Parse resultJson for Daeanne's response summary
-        if (!string.IsNullOrWhiteSpace(t.ResultJson))
-        {
-            try
-            {
-                var r = JsonSerializer.Deserialize<JsonElement>(t.ResultJson);
-                if (r.TryGetProperty("response", out var resp) && resp.GetString() is { } s)
-                    lines.Add($"Result  : {s}");
-            }
-            catch { /* not parseable — skip */ }
-        }
+        if (!string.IsNullOrWhiteSpace(t.AgentResponse))
+            lines.Add($"Result   : {t.AgentResponse}");
 
         _detailBox.Text = string.Join(Environment.NewLine, lines);
+
+        // Async: look up any Diagnostic tasks that reference this task ID
+        if (!string.IsNullOrWhiteSpace(t.Id))
+            _ = LoadLinkedDiagnosticsAsync(t.Id);
+    }
+
+    private async Task LoadLinkedDiagnosticsAsync(string taskId)
+    {
+        try
+        {
+            var json = await _http.GetStringAsync(
+                $"http://127.0.0.1:47777/tasks?type=Diagnostic&take=50");
+            var all = JsonSerializer.Deserialize<List<TaskSummary>>(json,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? [];
+
+            var linked = all.Where(d =>
+                d.Prompt?.Contains(taskId, StringComparison.OrdinalIgnoreCase) == true).ToList();
+
+            if (linked.Count == 0) return;
+
+            var current = _detailBox.Text;
+            var extras = linked.Select(d =>
+                $"🔍 Diagnostic {d.Status} {d.CompletedAt?.ToLocalTime():MM/dd HH:mm}: {d.AgentResponse ?? d.Error ?? "no result"}");
+            _detailBox.Text = current + Environment.NewLine + string.Join(Environment.NewLine, extras);
+        }
+        catch { /* ignore */ }
     }
 
     private void OnOpenWorkDir(object? sender, EventArgs e)
@@ -408,14 +428,16 @@ internal class ActivityWindow : Form
     // Minimal DTO — matches AgentTask JSON shape from dispatcher
     private sealed class TaskSummary
     {
-        public string?   Id          { get; set; }
-        public string?   Type        { get; set; }
-        public string?   Status      { get; set; }
-        public DateTime? StartedAt   { get; set; }
-        public DateTime? CompletedAt { get; set; }
-        public string?   Error       { get; set; }
-        public string?   WorkDir     { get; set; }
-        public string?   ResultJson  { get; set; }
+        public string?   Id             { get; set; }
+        public string?   Type           { get; set; }
+        public string?   Status         { get; set; }
+        public string?   Prompt         { get; set; }
+        public bool      AgentReported  { get; set; }
+        public DateTime? StartedAt      { get; set; }
+        public DateTime? CompletedAt    { get; set; }
+        public string?   Error          { get; set; }
+        public string?   WorkDir        { get; set; }
+        public string?   ResultJson     { get; set; }
 
         // Parsed lazily from ResultJson
         private string? _agentResponse;
