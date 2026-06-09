@@ -63,5 +63,18 @@ public class AgentTask
     public static readonly AgentTaskStatus[] TerminalStatuses =
         [AgentTaskStatus.Succeeded, AgentTaskStatus.Partial, AgentTaskStatus.Failed, AgentTaskStatus.TimedOut, AgentTaskStatus.Escalated];
 
+    /// <summary>
+    /// Dormant statuses: task is persisted and has a directory, but has not been dispatched.
+    /// Promoted to Pending (and enqueued) via PATCH /tasks/{id}/status {"status":"Pending"}.
+    /// </summary>
+    public static readonly AgentTaskStatus[] DormantStatuses =
+        [AgentTaskStatus.Deferred, AgentTaskStatus.Blocked, AgentTaskStatus.Future];
+
     public bool IsTerminal() => TerminalStatuses.Contains(Status);
+
+    /// <summary>True when the task is in a dormant state (created but not yet dispatched).</summary>
+    public bool IsDormant() => DormantStatuses.Contains(Status);
+
+    /// <summary>Timestamp when this task was promoted from a dormant state to Pending.</summary>
+    public DateTime? PromotedAt { get; set; }
 }

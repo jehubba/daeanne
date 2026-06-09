@@ -45,13 +45,27 @@ public static class TaskDirManager
     public static string ArchivePath(string baseDir, Guid id, bool isScheduled = false) =>
         Path.Combine(Ns(baseDir, isScheduled), "complete", "archive", id.ToString());
 
+    // Dormant namespace dirs — created on POST /tasks with a dormant InitialStatus,
+    // moved to active/ when the task is promoted to Pending.
+    public static string DeferredPath(string baseDir, Guid id, bool isScheduled = false) =>
+        Path.Combine(Ns(baseDir, isScheduled), "pending", id.ToString());
+
+    public static string BlockedPath(string baseDir, Guid id, bool isScheduled = false) =>
+        Path.Combine(Ns(baseDir, isScheduled), "blocked", id.ToString());
+
+    public static string FuturePath(string baseDir, Guid id, bool isScheduled = false) =>
+        Path.Combine(Ns(baseDir, isScheduled), "future", id.ToString());
+
     /// <summary>Returns the target directory path for a task with the given final status.</summary>
     public static string PathForStatus(string baseDir, Guid id, AgentTaskStatus status, bool isScheduled = false) =>
         status switch
         {
             AgentTaskStatus.Succeeded or AgentTaskStatus.Escalated => CompletePath(baseDir, id, isScheduled),
-            AgentTaskStatus.Failed or AgentTaskStatus.TimedOut     => FailedPath(baseDir, id, isScheduled),
-            _                                                       => ActivePath(baseDir, id, isScheduled)
+            AgentTaskStatus.Failed    or AgentTaskStatus.TimedOut  => FailedPath(baseDir, id, isScheduled),
+            AgentTaskStatus.Deferred                               => DeferredPath(baseDir, id, isScheduled),
+            AgentTaskStatus.Blocked                                => BlockedPath(baseDir, id, isScheduled),
+            AgentTaskStatus.Future                                 => FuturePath(baseDir, id, isScheduled),
+            _                                                      => ActivePath(baseDir, id, isScheduled)
         };
 
     /// <summary>
@@ -67,11 +81,17 @@ public static class TaskDirManager
             CompletePath(baseDir, id),
             FailedPath(baseDir, id),
             ArchivePath(baseDir, id),
+            DeferredPath(baseDir, id),
+            BlockedPath(baseDir, id),
+            FuturePath(baseDir, id),
             // Scheduled paths
             ActivePath(baseDir, id, isScheduled: true),
             CompletePath(baseDir, id, isScheduled: true),
             FailedPath(baseDir, id, isScheduled: true),
             ArchivePath(baseDir, id, isScheduled: true),
+            DeferredPath(baseDir, id, isScheduled: true),
+            BlockedPath(baseDir, id, isScheduled: true),
+            FuturePath(baseDir, id, isScheduled: true),
             // Legacy flat layout
             Path.Combine(baseDir, id.ToString())
         };

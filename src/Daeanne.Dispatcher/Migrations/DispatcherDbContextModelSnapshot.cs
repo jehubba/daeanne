@@ -23,8 +23,17 @@ namespace Daeanne.Dispatcher.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("AgentReported")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("AttemptCount")
                         .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("CallbackAcknowledgedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("CallbackPostedAt")
+                        .HasColumnType("TEXT");
 
                     b.Property<DateTime?>("CompletedAt")
                         .HasColumnType("TEXT");
@@ -38,10 +47,16 @@ namespace Daeanne.Dispatcher.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
-                    b.Property<bool>("AgentReported")
+                    b.Property<string>("Error")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsScheduled")
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("Error")
+                    b.Property<Guid?>("ParentTaskId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("PromotedAt")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Prompt")
@@ -49,6 +64,12 @@ namespace Daeanne.Dispatcher.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("ResultJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("ScheduledJobId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SessionName")
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime?>("StartedAt")
@@ -95,6 +116,9 @@ namespace Daeanne.Dispatcher.Migrations
                     b.Property<string>("Error")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("ReplyToGraphMessageId")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime?>("SentAt")
                         .HasColumnType("TEXT");
 
@@ -115,6 +139,148 @@ namespace Daeanne.Dispatcher.Migrations
                     b.HasIndex("Status");
 
                     b.ToTable("OutboxEmails");
+                });
+
+            modelBuilder.Entity("Daeanne.Shared.Models.OutboxSms", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CorrelationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Error")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("SentAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("To")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("OutboxSmsList");
+                });
+
+            modelBuilder.Entity("Daeanne.Shared.Models.ScheduledJob", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CorrelationIdTemplate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("DayOfWeek")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("IntervalMinutes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("JobType")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastFiredAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("NextRunAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Prompt")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("RunAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SessionName")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TaskType")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<TimeOnly?>("TimeOfDay")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsActive");
+
+                    b.HasIndex("NextRunAt");
+
+                    b.ToTable("ScheduledJobs");
+                });
+
+            modelBuilder.Entity("Daeanne.Shared.Models.SmsMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Direction")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("OutboxSmsId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Phone")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("QuoteTimestamp")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReferenceToken")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("TaskId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("Timestamp")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Phone");
+
+                    b.HasIndex("TaskId");
+
+                    b.HasIndex("Timestamp");
+
+                    b.ToTable("SmsMessages");
                 });
 #pragma warning restore 612, 618
         }

@@ -63,11 +63,21 @@ public static class TaskEndpoints
         CreateTaskRequest request,
         DispatcherDbContext db,
         Channel<Guid> queue,
+        IOptions<DispatchConfig> dispatchConfig,
         IServiceScopeFactory scopeFactory,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.Prompt))
             return Results.BadRequest("Prompt is required.");
+
+        // Validate InitialStatus if provided — only dormant states are valid here
+        if (request.InitialStatus.HasValue)
+        {
+            if (!AgentTask.DormantStatuses.Contains(request.InitialStatus.Value))
+                return Results.BadRequest(
+                    $"InitialStatus must be one of: {string.Join(", ", AgentTask.DormantStatuses)}. " +
+                    $"Use the default (omit InitialStatus) to create a task that dispatches immediately.");
+        }
 
         // Idempotency: if a non-terminal task with this correlationId already exists, return it
         if (!string.IsNullOrWhiteSpace(request.CorrelationId))
@@ -112,11 +122,23 @@ public static class TaskEndpoints
             IsScheduled    = request.IsScheduled,
             ScheduledJobId = request.ScheduledJobId,
             ParentTaskId   = request.ParentTaskId,
-            SessionName    = request.SessionName
+            SessionName    = request.SessionName,
+            Status         = request.InitialStatus ?? AgentTaskStatus.Pending
         };
 
         db.Tasks.Add(task);
         await db.SaveChangesAsync(ct);
+
+        if (request.InitialStatus.HasValue)
+        {
+            // Dormant task: create directory under pending/blocked/future/ but do NOT enqueue.
+            var dormantDir = TaskDirManager.PathForStatus(
+                dispatchConfig.Value.ResolvedWorkDir, task.Id, task.Status, task.IsScheduled);
+            Directory.CreateDirectory(dormantDir);
+
+            return Results.Created($"/tasks/{task.Id}", task);
+        }
+
         await queue.Writer.WriteAsync(task.Id, ct);
 
         // Non-sub-tasks: standard 201 Created
@@ -147,19 +169,57 @@ public static class TaskEndpoints
         Channel<Guid> queue,
         IOptions<DispatchConfig> dispatchConfig,
         PreferenceMemoryService preferenceMemory,
-        ILogger<Program> logger)
+        ILogger<Program> logger,
+        CancellationToken ct)
     {
         var task = await db.Tasks.FindAsync(id);
         if (task is null) return Results.NotFound();
 
+        if (!Enum.TryParse<AgentTaskStatus>(request.Status, ignoreCase: true, out var newStatus))
+            return Results.BadRequest($"'{request.Status}' is not a valid AgentTaskStatus.");
+
+        // ── Dormant → Pending promotion path ────────────────────────────────
+        // A dormant task (Deferred/Blocked/Future) is promoted by patching status to Pending.
+        // This moves the task dir to active/ and enqueues it for dispatch.
+        if (task.IsDormant())
+        {
+            if (newStatus != AgentTaskStatus.Pending)
+                return Results.BadRequest(
+                    $"Task {id} is in dormant state '{task.Status}'. " +
+                    "It can only be transitioned to Pending (to dispatch it). " +
+                    "Use POST /tasks/{id}/result to close a task that was manually processed.");
+
+            var workDir = TaskDirManager.FindTaskDir(dispatchConfig.Value.ResolvedWorkDir, id);
+            if (workDir is not null)
+            {
+                var activeDir = TaskDirManager.ActivePath(dispatchConfig.Value.ResolvedWorkDir, id, task.IsScheduled);
+                if (!workDir.Equals(activeDir, StringComparison.OrdinalIgnoreCase))
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(activeDir)!);
+                    try { Directory.Move(workDir, activeDir); }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "PostResult/promote: could not move dormant dir for task {Id} — promoting anyway.", id);
+                    }
+                }
+            }
+
+            task.Status     = AgentTaskStatus.Pending;
+            task.PromotedAt = DateTime.UtcNow;
+            task.UpdatedAt  = DateTime.UtcNow;
+            await db.SaveChangesAsync(ct);
+            await queue.Writer.WriteAsync(task.Id, ct);
+
+            logger.LogInformation("Task {Id} promoted from {OldStatus} → Pending and enqueued.", id, task.Status);
+            return Results.Ok(task);
+        }
+
+        // ── Normal terminal-status path (Daeanne reporting completion) ────────
         if (task.IsTerminal())
             return Results.Conflict($"Task {id} is already in terminal state '{task.Status}'. No update applied.");
 
-        if (!Enum.TryParse<AgentTaskStatus>(request.Status, ignoreCase: true, out var newStatus) ||
-            !AgentTask.TerminalStatuses.Contains(newStatus))
-        {
+        if (!AgentTask.TerminalStatuses.Contains(newStatus))
             return Results.BadRequest($"Status must be one of: {string.Join(", ", AgentTask.TerminalStatuses)}.");
-        }
 
         // Update DB status. Do NOT move the task dir here —
         // TaskCleanupWorker runs on a schedule (default 60 min) and moves dirs for
@@ -171,7 +231,7 @@ public static class TaskEndpoints
         task.UpdatedAt     = DateTime.UtcNow;
         task.AgentReported = true;   // Daeanne explicitly called this endpoint
 
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(ct);
 
         // Update preference memory from completed task (Daeanne's signal is authoritative)
         try { preferenceMemory.UpdateFromTaskClose(task); }

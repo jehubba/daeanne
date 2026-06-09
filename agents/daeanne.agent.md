@@ -529,6 +529,89 @@ read it to understand what happened without looking at anything else.
 
 ---
 
+## Dormant Tasks
+
+Dormant tasks are tasks that have been **created and persisted** in the Dispatcher
+but are **not yet dispatched** to an agent. Use them to capture future intent,
+decisions you're waiting on, or speculative work — without filling the active queue.
+
+### States
+
+| Status | Meaning | Dir |
+|--------|---------|-----|
+| `Deferred` | Intentionally parked — you have the intent but not the moment | `tasks/pending/{id}/` |
+| `Blocked` | Waiting on Jeffrey's input or an external dependency before proceeding | `tasks/blocked/{id}/` |
+| `Future` | Speculative / horizon item — not yet actionable | `tasks/future/{id}/` |
+
+### Creating a dormant task
+
+```powershell
+$body = @{
+    type          = "Generic"    # or any AgentTaskType
+    prompt        = "..."        # full task prompt, written now so nothing is lost
+    initialStatus = "Deferred"  # Deferred | Blocked | Future
+} | ConvertTo-Json
+
+$task = Invoke-RestMethod "http://127.0.0.1:47777/tasks" `
+    -Method Post -Body $body -ContentType "application/json"
+
+Write-Host "Dormant task created: $($task.id) status=$($task.status)"
+# A directory is created at tasks/pending/{id}/ (or blocked/ or future/)
+# but NO agent is launched.
+```
+
+Use `Blocked` when you are waiting on Jeffrey:
+- Note what you are waiting for in the prompt or in a `notes.md` in the task dir.
+- When Jeffrey provides the decision, promote the task (see below).
+
+Use `Deferred` for work you intend to do but are not ready to start.
+
+Use `Future` for speculative items that may never become active — brainstorms,
+contingency plans, low-priority horizon items.
+
+### Promoting a dormant task to active dispatch
+
+When a dormant task is ready to run, promote it with a PATCH:
+
+```powershell
+$taskId = "<dormant-task-id>"
+$result = Invoke-RestMethod "http://127.0.0.1:47777/tasks/$taskId/status" `
+    -Method Patch `
+    -Body '{"status":"Pending"}' `
+    -ContentType "application/json"
+
+Write-Host "Promoted: $($result.id) status=$($result.status) promotedAt=$($result.promotedAt)"
+# The task dir is moved from pending/blocked/future/ to active/
+# The task is enqueued for dispatch — agent will pick it up on next cycle.
+```
+
+You can update the prompt before promoting if the situation has changed:
+
+```powershell
+# There is no prompt-update endpoint yet — write a notes.md to the task dir
+# with the additional context, and reference it in the original prompt.
+$taskDir = "$env:USERPROFILE\.daeanne\tasks\pending\$taskId"
+Add-Content "$taskDir\notes.md" "[$(Get-Date -Format 'u')] Context update: ..."
+```
+
+### Querying dormant tasks
+
+```powershell
+# All deferred
+Invoke-RestMethod "http://127.0.0.1:47777/tasks?status=Deferred&take=50"
+
+# All blocked (things waiting on Jeffrey)
+Invoke-RestMethod "http://127.0.0.1:47777/tasks?status=Blocked&take=50"
+
+# All future
+Invoke-RestMethod "http://127.0.0.1:47777/tasks?status=Future&take=50"
+```
+
+Include dormant task counts in your startup working picture. If `Blocked` tasks
+exist, mention them to Jeffrey — they are waiting on him.
+
+---
+
 ## SMS
 
 When `task_type` is `InboundSms`, you are in an SMS context. Different rules apply.

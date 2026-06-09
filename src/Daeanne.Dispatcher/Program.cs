@@ -61,6 +61,10 @@ using (var scope = app.Services.CreateScope())
         db.Database.ExecuteSqlRaw("ALTER TABLE Tasks ADD COLUMN CallbackAcknowledgedAt TEXT");
     if (!taskCols.Contains("CallbackPostedAt"))
         db.Database.ExecuteSqlRaw("ALTER TABLE Tasks ADD COLUMN CallbackPostedAt TEXT");
+    if (!taskCols.Contains("AgentReported"))
+        db.Database.ExecuteSqlRaw("ALTER TABLE Tasks ADD COLUMN AgentReported INTEGER NOT NULL DEFAULT 0");
+    if (!taskCols.Contains("PromotedAt"))
+        db.Database.ExecuteSqlRaw("ALTER TABLE Tasks ADD COLUMN PromotedAt TEXT");
 
     var jobCols = db.Database.SqlQueryRaw<string>("SELECT name FROM pragma_table_info('ScheduledJobs')").ToList();
     if (!jobCols.Contains("SessionName"))

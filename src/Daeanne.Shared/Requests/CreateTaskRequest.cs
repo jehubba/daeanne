@@ -40,4 +40,14 @@ public class CreateTaskRequest
     /// When null, task ID is used (isolated per dispatch).
     /// </summary>
     public string? SessionName { get; set; }
+
+    /// <summary>
+    /// Optional initial status for creating a task in a dormant state.
+    /// Only <see cref="AgentTaskStatus.Deferred"/>, <see cref="AgentTaskStatus.Blocked"/>,
+    /// and <see cref="AgentTaskStatus.Future"/> are valid values.
+    /// When set, the task is persisted in the DB and a directory is created,
+    /// but it is NOT enqueued for dispatch. Passing any other status returns 400.
+    /// When null (default), the task is created as Pending and immediately enqueued.
+    /// </summary>
+    public AgentTaskStatus? InitialStatus { get; set; }
 }
