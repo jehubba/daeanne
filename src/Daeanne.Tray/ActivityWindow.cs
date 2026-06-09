@@ -75,11 +75,11 @@ internal class ActivityWindow : Form
             BorderStyle   = BorderStyle.None,
             Font          = new Font("Segoe UI", 9f)
         };
-        _taskList.Columns.Add("Type",     160);
+        _taskList.Columns.Add("Type",     155);
         _taskList.Columns.Add("Status",    90);
-        _taskList.Columns.Add("Started",  130);
-        _taskList.Columns.Add("Duration", 100);
-        _taskList.Columns.Add("Error",    160);
+        _taskList.Columns.Add("Started",  128);
+        _taskList.Columns.Add("Duration",  80);
+        _taskList.Columns.Add("Note",     185);
 
         // Owner-draw: dark column headers
         _taskList.DrawColumnHeader += (_, e) =>
@@ -109,7 +109,10 @@ internal class ActivityWindow : Form
             using var bgBrush = new SolidBrush(bg);
             e.Graphics.FillRectangle(bgBrush, e.Bounds);
 
-            var fg = selected ? Color.White : e.Item.ForeColor;
+            // Per-subitem color when not selected; fall back to item color
+            var fg = selected ? Color.White
+                : (e.SubItem?.ForeColor is { } c && c != Color.Empty && c != e.Item.ForeColor
+                    ? c : e.Item.ForeColor);
             TextRenderer.DrawText(e.Graphics, e.SubItem?.Text ?? "", _taskList.Font,
                 Rectangle.Inflate(e.Bounds, -4, 0),
                 fg,
@@ -127,20 +130,23 @@ internal class ActivityWindow : Form
         rowMenu.Items.Add(new ToolStripSeparator());
         var troubleshootItem = (ToolStripMenuItem)rowMenu.Items.Add("Troubleshoot with Daeanne", null, OnTroubleshoot);
 
-        // Enable Troubleshoot only for terminal failure states
+        // Troubleshoot available on any terminal task — Succeeded ≠ goal achieved
         rowMenu.Opening += (_, _) =>
         {
             var t = SelectedTask();
-            troubleshootItem.Enabled = t?.Status is "Failed" or "TimedOut";
+            troubleshootItem.Enabled = t?.Status is "Failed" or "TimedOut" or "Succeeded" or "Partial";
         };
 
-        // Error tooltip on the ListView
+        // Tooltip on Note column: show full text
         var errorTip = new ToolTip { AutoPopDelay = 10000, InitialDelay = 400 };
         _taskList.MouseMove += (_, me) =>
         {
             var hit = _taskList.HitTest(me.Location);
-            if (hit.SubItem is not null && hit.Item?.Tag is TaskSummary ts && !string.IsNullOrWhiteSpace(ts.Error))
-                errorTip.SetToolTip(_taskList, ts.Error);
+            if (hit.SubItem is not null && hit.Item?.Tag is TaskSummary ts)
+            {
+                var tip = string.IsNullOrWhiteSpace(ts.Error) ? ts.AgentResponse : ts.Error;
+                errorTip.SetToolTip(_taskList, tip ?? "");
+            }
             else
                 errorTip.SetToolTip(_taskList, "");
         };
@@ -231,21 +237,32 @@ internal class ActivityWindow : Form
                     ? FormatDuration(t.CompletedAt.Value - t.StartedAt.Value)
                     : t.StartedAt.HasValue ? "running…" : "—";
 
+                // Note column: error if present, otherwise Daeanne's self-reported response
+                var note = string.IsNullOrWhiteSpace(t.Error)
+                    ? t.AgentResponse
+                    : t.Error;
+
                 var item = new ListViewItem(t.Type ?? "—");
                 item.SubItems.Add(t.Status ?? "—");
                 item.SubItems.Add(t.StartedAt?.ToLocalTime().ToString("MM/dd HH:mm:ss") ?? "—");
                 item.SubItems.Add(duration);
-                item.SubItems.Add(t.Error ?? "");
+                item.SubItems.Add(note ?? "");
                 item.Tag = t;   // store full task for detail panel / context menu
 
                 item.ForeColor = (t.Status ?? "") switch
                 {
                     "Succeeded" => Color.FromArgb(100, 220, 100),
+                    "Partial"   => Color.FromArgb(255, 185, 60),
                     "Failed" or "TimedOut" => Color.FromArgb(255, 100, 80),
-                    "Running" => Color.FromArgb(100, 180, 255),
-                    "Awaiting" => Color.FromArgb(255, 200, 80),
-                    _ => Color.White
+                    "Running"  => Color.FromArgb(100, 180, 255),
+                    "Awaiting" => Color.FromArgb(200, 160, 255),
+                    _ => Color.FromArgb(200, 200, 200)
                 };
+
+                // Dim the note text slightly relative to status color
+                item.SubItems[4].ForeColor = string.IsNullOrWhiteSpace(t.Error)
+                    ? Color.FromArgb(160, 160, 165)
+                    : Color.FromArgb(255, 130, 110);
 
                 _taskList.Items.Add(item);
             }
@@ -399,5 +416,24 @@ internal class ActivityWindow : Form
         public string?   Error       { get; set; }
         public string?   WorkDir     { get; set; }
         public string?   ResultJson  { get; set; }
+
+        // Parsed lazily from ResultJson
+        private string? _agentResponse;
+        public string? AgentResponse
+        {
+            get
+            {
+                if (_agentResponse is not null) return _agentResponse;
+                if (string.IsNullOrWhiteSpace(ResultJson)) return null;
+                try
+                {
+                    var r = JsonSerializer.Deserialize<JsonElement>(ResultJson);
+                    if (r.TryGetProperty("response", out var v))
+                        _agentResponse = v.GetString();
+                }
+                catch { /* ignore */ }
+                return _agentResponse;
+            }
+        }
     }
 }
