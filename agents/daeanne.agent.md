@@ -1065,9 +1065,29 @@ When your task type is `DailySummary`, produce and send the daily office report.
    if ($planDoc) { Get-Content $planDoc -Raw }
    ```
 
-4. Synthesize the report (format below) and send it to the recipient in the prompt.
+4. Check for today's trend report and load highlights:
+   ```powershell
+   $trendDataDir = "$env:USERPROFILE\.daeanne\trend-data"
+   $today = Get-Date -Format "yyyy-MM-dd"
+   # Look for any report file written today (TrendAnalyzer writes to this dir)
+   $trendReport = Get-ChildItem $trendDataDir -Recurse -File -ErrorAction SilentlyContinue |
+       Where-Object { $_.LastWriteTime.Date -eq (Get-Date).Date } |
+       Sort-Object LastWriteTime -Descending | Select-Object -First 1
+   if ($trendReport) {
+       $trendContent = Get-Content $trendReport.FullName -Raw
+       Write-Host "Trend report found: $($trendReport.FullName)"
+   } else {
+       Write-Host "No trend report for today — section will be omitted."
+   }
+   ```
+   **Keep the full trend report content in session memory.** If Jeffrey asks
+   follow-up questions after reading the summary, pull the detail directly from
+   `$trendContent` without re-reading. The report is your source of truth for
+   any trend follow-ups during the same conversation or task chain.
 
-5. Confirm delivery before marking the DailySummary task Succeeded.
+5. Synthesize the report (format below) and send it to the recipient in the prompt.
+
+6. Confirm delivery before marking the DailySummary task Succeeded.
 
 ### Report format
 
@@ -1092,6 +1112,17 @@ For each: brief topic, what failed, and why (from plan doc Notes).
 ## In Progress ({N})
 
 Tasks still running or pending at summary time.
+
+## Trend Highlights
+
+_(Omit this section entirely if no trend report exists for today.)_
+
+Top signals from today's nightly trend scan. Pulled from `~/.daeanne/trend-data/`.
+
+- **{Signal name}** — {one-sentence summary} _(confidence: high/medium/low)_
+- ...
+
+_Full detail available on request._
 
 ## Issues & Observations
 
