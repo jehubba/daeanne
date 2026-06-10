@@ -37,6 +37,9 @@ internal class ActivityWindow : Form
     private int  _sortCol = 2;      // default: Started
     private bool _sortAsc = false;  // default: newest first
 
+    // ── Auto-refresh ──────────────────────────────────────────────────────────
+    private readonly System.Windows.Forms.Timer _autoRefreshTimer;
+    private string? _lastRefreshError;
 
     // cached for the status bar painter
     private int _cntRunning, _cntPending, _cntSucceeded, _cntFailed, _cntTotal;
@@ -125,6 +128,12 @@ internal class ActivityWindow : Form
                 _ = RefreshAsync();
             });
         };
+
+        _autoRefreshTimer = new System.Windows.Forms.Timer { Interval = 30_000 };
+        _autoRefreshTimer.Tick += async (_, _) => await RefreshAsync();
+        _autoRefreshTimer.Start();
+
+        FormClosed += (_, _) => _autoRefreshTimer.Dispose();
     }
 
     // ── Section / label factories (see DashboardTheme) ───────────────────────
@@ -160,11 +169,22 @@ internal class ActivityWindow : Form
 
     public async Task RefreshAsync()
     {
+        _lastRefreshError = null;
         await Task.WhenAll(
             RefreshServicesAsync(),
             RefreshTasksAsync(),
             RefreshScheduleAsync());
-        _lastUpdated.Text = $"Updated {DateTime.Now:HH:mm:ss}  ";
+
+        if (_lastRefreshError is not null)
+        {
+            _lastUpdated.ForeColor = Color.FromArgb(255, 150, 60);
+            _lastUpdated.Text = $"⚠ {DateTime.Now:HH:mm:ss}: {_lastRefreshError}  ";
+        }
+        else
+        {
+            _lastUpdated.ForeColor = DashboardTheme.TextMuted;
+            _lastUpdated.Text = $"Updated {DateTime.Now:HH:mm:ss}  ";
+        }
     }
 
     private async Task RefreshServicesAsync()
@@ -225,7 +245,7 @@ internal class ActivityWindow : Form
             _allTasks = tasks;
             RepopulateTaskList();
         }
-        catch { /* Dispatcher unreachable — leave as-is */ }
+        catch (Exception ex) { _lastRefreshError = $"Tasks: {ex.Message.Truncate(60)}"; }
     }
 
     private void RepopulateTaskList()
@@ -329,7 +349,7 @@ internal class ActivityWindow : Form
                 _cronList.Height = Math.Min(rowH * (_cronList.Items.Count + 1) + 24, 200);
             }
         }
-        catch { /* Dispatcher unreachable */ }
+        catch (Exception ex) { _lastRefreshError = $"Schedule: {ex.Message.Truncate(60)}"; }
     }
 
     // ── Event handlers (unchanged logic) ─────────────────────────────────────
