@@ -11,12 +11,7 @@ description: >
   structural agent issues — use agent-reviewer for those.
 tools:
   - read
-  - execute
-handoffs:
-  - label: "Run Code Gardener Review"
-    agent: agent-reviewer
-    prompt: "Security review complete. Run the agent-reviewer skill on the AGENT.md that was just reviewed. Check description quality, frontmatter correctness, tool minimality, and scope focus."
-    send: false
+  - shell
 ---
 
 # Security Hardener
