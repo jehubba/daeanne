@@ -42,14 +42,12 @@ internal class ActivityWindow : Form
     private static readonly Color TextMuted   = Color.FromArgb(130, 130, 140);
     private static readonly Font  FontUi     = new("Segoe UI", 9f);
     private static readonly Font  FontSmall  = new("Segoe UI", 8f);
-    private static readonly Font  FontMono   = new("Cascadia Mono", 8.5f, FontStyle.Regular,
-                                                     GraphicsUnit.Point, 0,
-                                                     !IsFontInstalled("Cascadia Mono"));
+    private static readonly Font  FontMono   = MakeMonoFont();
 
-    private static bool IsFontInstalled(string name)
+    private static Font MakeMonoFont()
     {
-        using var fam = new System.Drawing.FontFamily(name);
-        return true; // throws if not found, caught at site
+        try   { return new Font("Cascadia Mono", 8.5f, FontStyle.Regular); }
+        catch { return new Font("Consolas",      8.5f, FontStyle.Regular); }
     }
 
     // cached for the status bar painter
@@ -301,12 +299,16 @@ internal class ActivityWindow : Form
         Controls.Add(split);
         Controls.Add(header);
 
-        Shown += async (_, _) =>
+        Shown += (_, _) =>
         {
-            // SplitterDistance must be set after layout so the container has real dimensions.
-            split.SplitterDistance     = Math.Min(260, split.Width    - split.Panel2MinSize - split.SplitterWidth);
-            mainSplit.SplitterDistance = Math.Min(440, mainSplit.Height - mainSplit.Panel2MinSize - mainSplit.SplitterWidth);
-            await RefreshAsync();
+            // BeginInvoke defers one pump cycle so layout is fully committed
+            // before we touch SplitterDistance (which validates against real size).
+            BeginInvoke(() =>
+            {
+                try { split.SplitterDistance     = 260; } catch { /* use default */ }
+                try { mainSplit.SplitterDistance = 440; } catch { /* use default */ }
+                _ = RefreshAsync();
+            });
         };
     }
 
