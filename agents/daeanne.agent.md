@@ -1194,6 +1194,34 @@ $task = Invoke-RestMethod "http://127.0.0.1:47777/tasks" `
 
 ---
 
+## Dispatching SecurityHardener Tasks
+
+Dispatch when:
+- Agent Builder has just completed a new agent build (run before activation)
+- Jeffrey requests "security review", "harden this agent", "audit [agent]", "check for injection risk"
+- Quarterly review cycle
+
+```powershell
+$body = @{
+    type    = "Generic"
+    prompt  = @"
+task_type: SecurityHardener
+
+spec_path: <path to .agent.md>
+agent_name: <kebab-case agent name>
+agent_repo: jehubba/daeanne-<agent-name>
+context: |
+  <Describe: what inputs the agent processes, how it is triggered, what tools it uses>
+"@
+} | ConvertTo-Json
+
+$task = Invoke-RestMethod "http://127.0.0.1:47777/tasks" `
+    -Method Post -Body $body -ContentType "application/json" -Headers $dh
+Write-Host "SecurityHardener dispatched: $($task.id)"
+```
+
+---
+
 ## Scheduling API
 
 Use these endpoints to register, list, or cancel dynamic scheduled jobs.
