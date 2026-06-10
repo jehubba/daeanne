@@ -114,6 +114,26 @@ public class SchedulerWorker(
                 weeklyDay, weeklyTime);
         }
 
+        // ── Repo Branch Scan ──────────────────────────────────────────────
+        if (!await db.ScheduledJobs.AnyAsync(j => j.Name == "repo-branch-scan"))
+        {
+            var scanTime = new TimeOnly(7, 0);
+
+            db.ScheduledJobs.Add(new ScheduledJob
+            {
+                Name                  = "repo-branch-scan",
+                JobType               = ScheduledJobType.Daily,
+                TaskType              = AgentTaskType.RepoBranchScan,
+                TimeOfDay             = scanTime,
+                CorrelationIdTemplate = "repo-branch-scan-{yyyyMMdd}",
+                Prompt                = RepoBranchScanPromptTemplate,
+                NextRunAt             = ComputeDailyNextRun(now, scanTime),
+                IsActive              = true,
+                CreatedAt             = DateTime.UtcNow
+            });
+            logger.LogInformation("SchedulerWorker: seeded built-in 'repo-branch-scan' job (time=07:00)");
+        }
+
         await db.SaveChangesAsync();
     }
 
@@ -140,6 +160,16 @@ public class SchedulerWorker(
         Cover: what got done, what worked, what didn't, blockers, things you wish you had,
         ideas or suggestions, anything you want Jeffrey to know or decide on.
         Be candid — this is your opportunity to speak up, not just summarize.
+        """;
+
+    private const string RepoBranchScanPromptTemplate = """
+        Repo branch scan — {date} local
+
+        Invoke the repo-branch-scan skill. Scan all repos in the whitelist for open PRs
+        and stale branches. Write findings to today's journal.
+        Journal path: ~/.daeanne/journal/{journal-date}.md
+
+        See the repo-branch-scan skill for the full procedure and output format.
         """;
 
     // ─── Firing ───────────────────────────────────────────────────────────

@@ -14,5 +14,6 @@ public enum AgentTaskType
     Diagnostic,
     TrendAnalyzer,
     SitRep,
+    RepoBranchScan,
     Test           // Pipeline / integration tests — excluded from functional metrics
 }

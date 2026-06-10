@@ -1530,7 +1530,28 @@ what needs a decision or follow-up.
    $deferred = $all | Where-Object { $_.status -eq "Deferred" }
    ```
 
-2. For each Blocked task, retrieve the deferral note from its plan doc if it exists:
+2. **Validate Blocked tasks against GitHub** (auto-resolve stale blockers):
+
+   For each Blocked task, scan its `prompt` and `contextJson` for GitHub issue references
+   (patterns: `jehubba/daeanne#123`, `github.com/.*/issues/123`, `#\d+` near a repo name).
+
+   For each issue reference found, check its state:
+   ```powershell
+   $gh = "C:\Program Files\GitHub CLI\gh.exe"
+   $issue = & $gh issue view 123 --repo jehubba/daeanne --json state | ConvertFrom-Json
+   ```
+
+   If the referenced issue is **closed**, auto-resolve the Blocked task:
+   ```powershell
+   Invoke-RestMethod -Method Patch "http://127.0.0.1:47777/tasks/$($task.id)/status" `
+       -Body (@{ status = "Succeeded"; error = "Auto-resolved: referenced issue was closed." } | ConvertTo-Json) `
+       -ContentType "application/json"
+   ```
+   Then **exclude it from the briefing** — it is no longer actionable.
+
+   If no issue reference is found, include the task as normal.
+
+3. For each remaining Blocked task, retrieve the deferral note from its plan doc if it exists:
    ```powershell
    $taskBase = "$env:USERPROFILE\.daeanne\tasks"
    function Get-PlanDoc($id) {
@@ -1541,9 +1562,30 @@ what needs a decision or follow-up.
    }
    ```
 
-3. Synthesize the briefing (format below) and send it to the recipient in the prompt.
+4. Check for a repo-branch-scan journal entry from the last 2 hours:
+   ```powershell
+   $journal = "$env:USERPROFILE\.daeanne\journal\$(Get-Date -Format 'yyyy-MM-dd').md"
+   $branchSection = $null
+   if (Test-Path $journal) {
+       $content = Get-Content $journal -Raw
+       # Find the most recent "Repo Branch Scan" section
+       if ($content -match '(?s)(## \d{2}:\d{2} — Repo Branch Scan.*?)(?=\n## |\z)') {
+           $entryTime = [datetime]::ParseExact(
+               ($Matches[1] -split ' — ')[0].TrimStart('# ').Trim(), 'HH:mm', $null)
+           if ((Get-Date) - $entryTime -lt [TimeSpan]::FromHours(2)) {
+               $branchSection = $Matches[1].Trim()
+           }
+       }
+   }
+   ```
 
-4. Mark the MorningBriefing task Succeeded after confirming delivery.
+   Include the **## Open PRs & Branches** section in the briefing email only if
+   `$branchSection` is non-null and contains open PRs or stale branches.
+   If the entry says "all repos clean", omit the section entirely.
+
+5. Synthesize the briefing (format below) and send it to the recipient in the prompt.
+
+6. Mark the MorningBriefing task Succeeded after confirming delivery.
 
 ### Report format
 
@@ -1570,12 +1612,18 @@ Items you parked for later that are now waiting.
 
 {If none: "Nothing deferred."}
 
+## Open PRs & Branches          ← include only if scan found something
+
+{Compact summary from repo-branch-scan journal entry.
+ List open PRs first, then stale branches. One line per item.}
+
 ---
 Daeanne
 ```
 
-Keep it short. This is a morning glance, not a report — no narrative, no headers
-beyond the two sections above, no trend content.
+Keep it short. This is a morning glance, not a report — no narrative beyond
+the sections above, no trend content. The PRs & Branches section is optional
+and should be omitted if everything is clean.
 
 ---
 
