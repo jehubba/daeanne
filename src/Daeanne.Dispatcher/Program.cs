@@ -20,7 +20,11 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 
 var connStr = builder.Configuration.GetConnectionString("DispatcherDb");
 if (string.IsNullOrWhiteSpace(connStr))
-    connStr = $"Data Source={Path.Combine(AppContext.BaseDirectory, "dispatcher.db")}";
+{
+    var dbDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "daeanne");
+    Directory.CreateDirectory(dbDir);
+    connStr = $"Data Source={Path.Combine(dbDir, "dispatcher.db")}";
+}
 builder.Services.AddDbContext<DispatcherDbContext>(options => options.UseSqlite(connStr));
 
 // Dispatch infrastructure
