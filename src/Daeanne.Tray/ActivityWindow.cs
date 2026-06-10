@@ -526,18 +526,20 @@ internal class ActivityWindow : Form
             var json  = await _http.GetStringAsync("http://127.0.0.1:47777/tasks?take=50");
             var tasks = JsonSerializer.Deserialize<List<TaskSummary>>(json, JsonOpts) ?? [];
 
-            // Compute stats for sidebar
-            var cutoff24h = DateTime.UtcNow.AddHours(-24);
-            var cutoff7d  = DateTime.UtcNow.AddDays(-7);
+            // Compute stats for sidebar — exclude Test tasks so pipeline probes
+            // don't distort the functional success rate.
+            var functional = tasks.Where(t => t.Type != "Test").ToList();
+            var cutoff24h  = DateTime.UtcNow.AddHours(-24);
+            var cutoff7d   = DateTime.UtcNow.AddDays(-7);
 
-            _cntRunning   = tasks.Count(t => t.Status == "Running");
-            _cntPending   = tasks.Count(t => t.Status is "Pending" or "Awaiting");
-            _cntSucceeded = tasks.Count(t => t.Status == "Succeeded");
-            _cntFailed    = tasks.Count(t => t.Status is "Failed" or "TimedOut");
+            _cntRunning   = functional.Count(t => t.Status == "Running");
+            _cntPending   = functional.Count(t => t.Status is "Pending" or "Awaiting");
+            _cntSucceeded = functional.Count(t => t.Status == "Succeeded");
+            _cntFailed    = functional.Count(t => t.Status is "Failed" or "TimedOut");
             _cntTotal     = _cntRunning + _cntPending + _cntSucceeded + _cntFailed;
 
-            var today    = tasks.Count(t => t.CreatedAt >= cutoff24h);
-            var week     = tasks.Where(t => t.CreatedAt >= cutoff7d && t.Status is "Succeeded" or "Failed" or "TimedOut").ToList();
+            var today    = functional.Count(t => t.CreatedAt >= cutoff24h);
+            var week     = functional.Where(t => t.CreatedAt >= cutoff7d && t.Status is "Succeeded" or "Failed" or "TimedOut").ToList();
             var wSucc    = week.Count(t => t.Status == "Succeeded");
             var rate     = week.Count > 0 ? (int)Math.Round(100.0 * wSucc / week.Count) : 100;
 

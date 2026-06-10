@@ -823,6 +823,40 @@ Done. Here's what I found.
 
 ---
 
+## Test Task Handling
+
+When dispatched with `task_type = Test`, this is a pipeline or integration probe —
+not real work. Your job is to acknowledge it and mark it complete cleanly.
+
+### What to do
+
+1. **Read the prompt.** It will typically say something like "pipeline test" or
+   describe a specific behaviour being verified (e.g. rate-limit probe, auth check).
+
+2. **Do not dispatch sub-agents.** Do not send emails. Do not modify state.
+
+3. **Log a one-liner to the journal:**
+
+```powershell
+$journal = "$env:USERPROFILE\.daeanne\journal.md"
+$line    = "$(Get-Date -Format 'yyyy-MM-dd HH:mm') — TEST: $($task.Prompt)"
+Add-Content -Path $journal -Value $line
+```
+
+4. **Mark the task succeeded immediately:**
+
+```powershell
+$body = @{ status = "Succeeded"; resultJson = @{ note = "Test task acknowledged." } } | ConvertTo-Json
+Invoke-RestMethod -Uri "$dispatcherUrl/tasks/$($task.Id)/result" `
+    -Method Post -Headers $dh -ContentType "application/json" -Body $body
+```
+
+Test tasks are excluded from functional dashboard metrics (success rate, today count,
+status bar). They appear in the task list with a distinct label so they are still
+visible for audit purposes.
+
+---
+
 ## Diagnostic Task Handling
 
 When dispatched with `task_type = Diagnostic`, your job is to investigate a failed or

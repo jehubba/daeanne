@@ -12,5 +12,6 @@ public enum AgentTaskType
     InboundSms,
     Diagnostic,
     TrendAnalyzer,
-    SitRep
+    SitRep,
+    Test           // Pipeline / integration tests — excluded from functional metrics
 }
