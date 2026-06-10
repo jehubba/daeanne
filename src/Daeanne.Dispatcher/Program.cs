@@ -1,9 +1,9 @@
 using System.Threading.Channels;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using Daeanne.Dispatcher.Data;
 using Daeanne.Dispatcher.Endpoints;
 using Daeanne.Dispatcher.Services;
-using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -32,23 +32,20 @@ builder.Services.AddHostedService<DispatchWorker>();
 builder.Services.AddHostedService<SchedulerWorker>();
 builder.Services.AddHostedService<TaskCleanupWorker>();
 
-// Sliding window rate limiter on task ingestion — 10 tasks/hour, reject immediately on overflow
-builder.Services.AddRateLimiter(options =>
-{
-    options.AddSlidingWindowLimiter("task-ingestion", opt =>
+// Rate limiter for *external* inbound task types only (Email, InboundSms).
+// Internal orchestration tasks (SitRep, Diagnostic, scheduled, sub-tasks, etc.) bypass this.
+// Configure via Dispatch:InboundRateLimit:PermitLimit and Dispatch:InboundRateLimit:WindowMinutes.
+var rlPermitLimit   = builder.Configuration.GetValue<int>("Dispatch:InboundRateLimit:PermitLimit", 60);
+var rlWindowMinutes = builder.Configuration.GetValue<int>("Dispatch:InboundRateLimit:WindowMinutes", 60);
+builder.Services.AddSingleton<RateLimiter>(_ => new SlidingWindowRateLimiter(
+    new SlidingWindowRateLimiterOptions
     {
-        opt.Window            = TimeSpan.FromHours(1);
-        opt.PermitLimit       = 10;
-        opt.QueueLimit        = 0;   // immediate reject — no queuing
-        opt.SegmentsPerWindow = 6;
-    });
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.OnRejected = async (context, ct) =>
-    {
-        context.HttpContext.Response.Headers.RetryAfter = "3600";
-        await context.HttpContext.Response.WriteAsync("Rate limit exceeded. Retry after 1 hour.", ct);
-    };
-});
+        Window            = TimeSpan.FromMinutes(rlWindowMinutes),
+        PermitLimit       = rlPermitLimit,
+        QueueLimit        = 0,   // immediate reject — no queuing
+        SegmentsPerWindow = 6,
+        AutoReplenishment = true
+    }));
 
 var app = builder.Build();
 
@@ -172,8 +169,6 @@ if (!string.IsNullOrWhiteSpace(apiKey))
         await next(context);
     });
 }
-
-app.UseRateLimiter();
 
 app.MapGet("/health", () => Results.Ok(new
 {

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Threading.Channels;
+using System.Threading.RateLimiting;
 using Daeanne.Dispatcher.Data;
 using Daeanne.Dispatcher.Services;
 using Daeanne.Shared.Models;
@@ -11,11 +12,15 @@ namespace Daeanne.Dispatcher.Endpoints;
 
 public static class TaskEndpoints
 {
+    // Task types that originate externally — subject to inbound rate limiting.
+    // All other types (SitRep, Diagnostic, scheduled, sub-tasks, etc.) bypass the limiter.
+    private static readonly HashSet<AgentTaskType> ExternalInboundTypes =
+        [AgentTaskType.Email, AgentTaskType.InboundSms];
     public static void MapTaskEndpoints(this WebApplication app)
     {
         app.MapGet("/tasks",                         GetTasks);
         app.MapGet("/tasks/{id:guid}",               GetTask);
-        app.MapPost("/tasks",                        CreateTask).RequireRateLimiting("task-ingestion");
+        app.MapPost("/tasks",                        CreateTask);
         app.MapPost("/tasks/{id:guid}/result",       PostResult);
         app.MapPatch("/tasks/{id:guid}/status",      PostResult);   // alias — agents use PATCH
         app.MapPost("/tasks/{id:guid}/resume",       ResumeTask);
@@ -65,10 +70,19 @@ public static class TaskEndpoints
         Channel<Guid> queue,
         IOptions<DispatchConfig> dispatchConfig,
         IServiceScopeFactory scopeFactory,
+        RateLimiter rateLimiter,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.Prompt))
             return Results.BadRequest("Prompt is required.");
+
+        // Rate-limit external inbound types only — internal orchestration bypasses this.
+        if (ExternalInboundTypes.Contains(request.Type))
+        {
+            var lease = await rateLimiter.AcquireAsync(permitCount: 1, cancellationToken: ct);
+            if (!lease.IsAcquired)
+                return Results.StatusCode(StatusCodes.Status429TooManyRequests);
+        }
 
         // Validate InitialStatus if provided — only dormant states are valid here
         if (request.InitialStatus.HasValue)
