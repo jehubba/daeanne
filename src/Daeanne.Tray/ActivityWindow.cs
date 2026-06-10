@@ -17,19 +17,25 @@ internal class ActivityWindow : Form
     private readonly Label _daeanneD;
     private readonly Label _daeanneLabel;
 
-    // ── Sidebar: stats ────────────────────────────────────────────────────────
+    // ── Stats strip: system ───────────────────────────────────────────────────
     private readonly Label  _statRunning;
     private readonly Label  _statToday;
     private readonly Label  _statSuccessRate;
     private readonly Panel  _statusBar;          // GDI+ painted segmented bar
 
-    // ── Sidebar: schedule ─────────────────────────────────────────────────────
+    // ── Stats strip: schedule ─────────────────────────────────────────────────
     private readonly ListView _cronList;
 
     // ── Main panel: task list + detail ───────────────────────────────────────
     private readonly ListView _taskList;
+    private readonly TextBox  _filterBox;
     private readonly TextBox  _detailBox;
     private readonly Label    _lastUpdated;
+
+    // ── Sort / filter state ───────────────────────────────────────────────────
+    private List<TaskSummary> _allTasks = [];
+    private int  _sortCol = 2;      // default: Started
+    private bool _sortAsc = false;  // default: newest first
 
     // ── Design tokens ─────────────────────────────────────────────────────────
     private static readonly Color BgBase    = Color.FromArgb(22, 22, 26);
@@ -118,80 +124,90 @@ internal class ActivityWindow : Form
         header.Controls.Add(refreshBtn);
         header.Controls.Add(headerFlow);
 
-        // ── Outer split: sidebar | main ───────────────────────────────────────
-        // IsSplitterFixed = true means the user can never drag it, so Panel1MinSize /
-        // Panel2MinSize are not needed and actually cause layout-time exceptions —
-        // WinForms validates SplitterDistance against them during the initial layout
-        // pass before our BeginInvoke callback fires. Leave them at default (25).
-        var split = new SplitContainer
+        // ── STATS STRIP (horizontal: system stats | schedule) ─────────────────
+        var statsStrip = new Panel
         {
-            Dock            = DockStyle.Fill,
-            Orientation     = Orientation.Vertical,
-            SplitterWidth   = 1,
-            FixedPanel      = FixedPanel.Panel1,
-            BackColor       = Separator,
-            IsSplitterFixed = true
+            Dock      = DockStyle.Top,
+            Height    = 120,
+            BackColor = BgSidebar
+        };
+        statsStrip.Paint += (_, e) =>
+        {
+            using var pen = new Pen(Separator);
+            e.Graphics.DrawLine(pen, 0, statsStrip.Height - 1, statsStrip.Width, statsStrip.Height - 1);
         };
 
-        // ── SIDEBAR ───────────────────────────────────────────────────────────
-        var sidebar = new Panel
+        var stripLayout = new TableLayoutPanel
         {
-            Dock      = DockStyle.Fill,
-            BackColor = BgSidebar,
-            Padding   = new Padding(14, 14, 14, 8)
+            Dock        = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount    = 1,
+            BackColor   = Color.Transparent
         };
-        split.Panel1.Controls.Add(sidebar);
+        stripLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 270f));
+        stripLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        stripLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+        statsStrip.Controls.Add(stripLayout);
 
-        // Stats section
-        var statsSection = MakeSectionHeader("SYSTEM");
+        // ── Left cell: system stats ───────────────────────────────────────────
+        var sysPanel = new Panel { Dock = DockStyle.Fill, BackColor = BgSidebar, Padding = new Padding(14, 8, 12, 6) };
         _statRunning     = MakeStatLabel("—");
         _statToday       = MakeStatLabel("—");
         _statSuccessRate = MakeStatLabel("—");
-        _statusBar       = new Panel
+        _statusBar = new Panel
         {
-            Height    = 8,
-            Dock      = DockStyle.Top,
-            BackColor = Color.FromArgb(40, 40, 46),
-            Margin    = new Padding(0, 4, 0, 8),
-            Cursor    = Cursors.Default
+            Height    = 7,
+            Dock      = DockStyle.Bottom,
+            BackColor = Color.FromArgb(40, 40, 46)
         };
         _statusBar.Paint += PaintStatusBar;
 
         var statGrid = new TableLayoutPanel
         {
-            Dock        = DockStyle.Top,
-            ColumnCount = 2,
-            AutoSize    = true,
-            Margin      = new Padding(0, 2, 0, 0)
+            Dock        = DockStyle.Fill,
+            ColumnCount = 3,
+            RowCount    = 2,
+            BackColor   = Color.Transparent,
+            Margin      = new Padding(0)
         };
-        statGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        statGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        statGrid.Controls.Add(MakeStatCaption("Running"), 0, 0);
-        statGrid.Controls.Add(MakeStatCaption("Today"),   1, 0);
-        statGrid.Controls.Add(_statRunning,               0, 1);
-        statGrid.Controls.Add(_statToday,                 1, 1);
-        statGrid.Controls.Add(MakeStatCaption("7-day rate"), 0, 2);
-        statGrid.Controls.Add(_statSuccessRate,              1, 2);
+        statGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33f));
+        statGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33f));
+        statGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34f));
+        statGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 18f));
+        statGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+        statGrid.Controls.Add(MakeStatCaption("Running"),  0, 0);
+        statGrid.Controls.Add(MakeStatCaption("Today"),    1, 0);
+        statGrid.Controls.Add(MakeStatCaption("7-day"),    2, 0);
+        statGrid.Controls.Add(_statRunning,                0, 1);
+        statGrid.Controls.Add(_statToday,                  1, 1);
+        statGrid.Controls.Add(_statSuccessRate,            2, 1);
 
-        // Schedule section
-        var schedSection = MakeSectionHeader("SCHEDULE");
+        var sysHeader = new Panel { Dock = DockStyle.Top, Height = 22, BackColor = Color.Transparent };
+        sysHeader.Controls.Add(MakeSectionHeader("SYSTEM"));
+        sysPanel.Controls.Add(_statusBar);
+        sysPanel.Controls.Add(statGrid);
+        sysPanel.Controls.Add(sysHeader);
+        stripLayout.Controls.Add(sysPanel, 0, 0);
+
+        // ── Right cell: schedule ──────────────────────────────────────────────
+        var schedPanel = new Panel { Dock = DockStyle.Fill, BackColor = BgSidebar, Padding = new Padding(12, 8, 14, 6) };
+
         _cronList = new ListView
         {
-            View        = View.Details,
+            View          = View.Details,
             FullRowSelect = true,
-            GridLines   = false,
-            OwnerDraw   = true,
-            BackColor   = BgSidebar,
-            ForeColor   = TextPrimary,
-            BorderStyle = BorderStyle.None,
-            Font        = FontSmall,
-            Dock        = DockStyle.Top,
-            Height      = 160
+            GridLines     = false,
+            OwnerDraw     = true,
+            BackColor     = BgSidebar,
+            ForeColor     = TextPrimary,
+            BorderStyle   = BorderStyle.None,
+            Font          = FontSmall,
+            Dock          = DockStyle.Fill
         };
-        _cronList.Columns.Add("",       10);   // active dot
-        _cronList.Columns.Add("Name",   90);
-        _cronList.Columns.Add("Next",   75);
-        _cronList.Columns.Add("Type",   60);
+        _cronList.Columns.Add("",        22);   // active dot
+        _cronList.Columns.Add("Name",   200);
+        _cronList.Columns.Add("Next",    90);
+        _cronList.Columns.Add("Type",   160);
 
         _cronList.DrawColumnHeader += (_, e) =>
         {
@@ -201,23 +217,42 @@ internal class ActivityWindow : Form
                 Rectangle.Inflate(e.Bounds, -2, 0),
                 TextMuted, TextFormatFlags.VerticalCenter | TextFormatFlags.Left);
         };
-        _cronList.DrawItem += (_, e) => { e.DrawDefault = false; };
+        _cronList.DrawItem    += (_, e) => { e.DrawDefault = false; };
         _cronList.DrawSubItem += DrawCronSubItem;
 
-        // Assemble sidebar (bottom to top for Dock.Top stacking)
-        var schedHeaderWrapper = new Panel { Dock = DockStyle.Top, Height = 26, BackColor = BgSidebar };
-        schedHeaderWrapper.Controls.Add(schedSection);
-        var statsHeaderWrapper = new Panel { Dock = DockStyle.Top, Height = 26, BackColor = BgSidebar };
-        statsHeaderWrapper.Controls.Add(statsSection);
+        var schedHeader = new Panel { Dock = DockStyle.Top, Height = 22, BackColor = Color.Transparent };
+        schedHeader.Controls.Add(MakeSectionHeader("SCHEDULE"));
+        schedPanel.Controls.Add(_cronList);
+        schedPanel.Controls.Add(schedHeader);
+        stripLayout.Controls.Add(schedPanel, 1, 0);
 
-        sidebar.Controls.Add(_cronList);
-        sidebar.Controls.Add(schedHeaderWrapper);
-        sidebar.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 10, BackColor = BgSidebar }); // spacer
-        sidebar.Controls.Add(_statusBar);
-        sidebar.Controls.Add(statGrid);
-        sidebar.Controls.Add(statsHeaderWrapper);
+        // ── FILTER BAR ────────────────────────────────────────────────────────
+        var filterBar = new Panel
+        {
+            Dock      = DockStyle.Top,
+            Height    = 34,
+            BackColor = BgHeader,
+            Padding   = new Padding(10, 6, 10, 6)
+        };
+        filterBar.Paint += (_, e) =>
+        {
+            using var pen = new Pen(Separator);
+            e.Graphics.DrawLine(pen, 0, filterBar.Height - 1, filterBar.Width, filterBar.Height - 1);
+        };
+        _filterBox = new TextBox
+        {
+            Dock        = DockStyle.Right,
+            Width       = 200,
+            BackColor   = Color.FromArgb(42, 42, 50),
+            ForeColor   = TextPrimary,
+            BorderStyle = BorderStyle.FixedSingle,
+            Font        = FontUi,
+            PlaceholderText = "filter…"
+        };
+        _filterBox.TextChanged += (_, _) => RepopulateTaskList();
+        filterBar.Controls.Add(_filterBox);
 
-        // ── MAIN PANEL ────────────────────────────────────────────────────────
+        // ── MAIN PANEL (task list + detail) ───────────────────────────────────
         var mainSplit = new SplitContainer
         {
             Dock          = DockStyle.Fill,
@@ -226,7 +261,6 @@ internal class ActivityWindow : Form
             BackColor     = Separator,
             Panel2MinSize = 70
         };
-        split.Panel2.Controls.Add(mainSplit);
 
         // Task list
         _taskList = new ListView
@@ -241,15 +275,31 @@ internal class ActivityWindow : Form
             BorderStyle   = BorderStyle.None,
             Font          = FontUi
         };
-        _taskList.Columns.Add("Type",    140);
+        _taskList.Columns.Add("Type",    130);
         _taskList.Columns.Add("Status",   96);
         _taskList.Columns.Add("Started", 130);
         _taskList.Columns.Add("Duration", 76);
-        _taskList.Columns.Add("Note",    260);
+        _taskList.Columns.Add("Note",    400);   // fills on resize
 
         _taskList.DrawColumnHeader += DrawTaskColumnHeader;
         _taskList.DrawItem         += (_, e) => { e.DrawDefault = false; };
         _taskList.DrawSubItem      += DrawTaskSubItem;
+
+        // Note column stretches to fill available width
+        _taskList.Resize += (_, _) =>
+        {
+            int used = _taskList.Columns.Cast<ColumnHeader>().Take(4).Sum(c => c.Width);
+            int fill = _taskList.ClientSize.Width - used - 2;
+            if (fill > 80) _taskList.Columns[4].Width = fill;
+        };
+
+        // Column-header click → sort
+        _taskList.ColumnClick += (_, e) =>
+        {
+            if (_sortCol == e.Column) _sortAsc = !_sortAsc;
+            else { _sortCol = e.Column; _sortAsc = true; }
+            RepopulateTaskList();
+        };
 
         AttachTaskContextMenu();
 
@@ -295,17 +345,17 @@ internal class ActivityWindow : Form
         mainSplit.Panel2.Controls.Add(_detailBox);
         mainSplit.Panel2.Controls.Add(_lastUpdated);
 
-        Controls.Add(split);
+        // Dock order matters: Fill last, then Top panels stack top-down
+        Controls.Add(mainSplit);
+        Controls.Add(filterBar);
+        Controls.Add(statsStrip);
         Controls.Add(header);
 
         Shown += (_, _) =>
         {
-            // BeginInvoke defers one pump cycle so layout is fully committed
-            // before we touch SplitterDistance (which validates against real size).
             BeginInvoke(() =>
             {
-                try { split.SplitterDistance     = 260; } catch { /* use default */ }
-                try { mainSplit.SplitterDistance = 440; } catch { /* use default */ }
+                try { mainSplit.SplitterDistance = Math.Max(25, ClientSize.Height - 200); } catch { }
                 _ = RefreshAsync();
             });
         };
@@ -548,51 +598,76 @@ internal class ActivityWindow : Form
             _statSuccessRate.Text = $"{rate}%";
             _statusBar.Invalidate();
 
-            // Populate task list
-            _taskList.BeginUpdate();
-            _taskList.Items.Clear();
-
-            foreach (var t in tasks)
-            {
-                var duration = t.CompletedAt.HasValue && t.StartedAt.HasValue
-                    ? FormatDuration(t.CompletedAt.Value - t.StartedAt.Value)
-                    : t.StartedAt.HasValue ? "running…" : "—";
-
-                var note = string.IsNullOrWhiteSpace(t.Error) ? t.AgentResponse : t.Error;
-
-                var statusText = t.AgentReported && t.Status == "Succeeded"
-                    ? "Succeeded ✔" : t.Status ?? "—";
-
-                var item = new ListViewItem(t.Type ?? "—");
-                item.SubItems.Add(statusText);
-                item.SubItems.Add(t.StartedAt?.ToLocalTime().ToString("MM/dd HH:mm:ss") ?? "—");
-                item.SubItems.Add(duration);
-                item.SubItems.Add(note ?? "");
-                item.Tag = t;
-
-                item.ForeColor = (t.Status ?? "") switch
-                {
-                    "Succeeded" when t.AgentReported => Color.FromArgb(80,  220, 100),
-                    "Succeeded"                      => Color.FromArgb(110, 165, 110),
-                    "Partial"                        => Color.FromArgb(255, 185,  60),
-                    "Failed" or "TimedOut"           => Color.FromArgb(255, 100,  80),
-                    "Running"                        => Color.FromArgb(100, 180, 255),
-                    "Awaiting"                       => Color.FromArgb(200, 160, 255),
-                    "Deferred" or "Blocked"
-                                 or "Future"         => Color.FromArgb(150, 150, 170),
-                    _                                => TextPrimary
-                };
-
-                item.SubItems[4].ForeColor = string.IsNullOrWhiteSpace(t.Error)
-                    ? Color.FromArgb(150, 150, 160)
-                    : Color.FromArgb(255, 130, 110);
-
-                _taskList.Items.Add(item);
-            }
-
-            _taskList.EndUpdate();
+            // Store full list, then apply sort/filter
+            _allTasks = tasks;
+            RepopulateTaskList();
         }
         catch { /* Dispatcher unreachable — leave as-is */ }
+    }
+
+    private void RepopulateTaskList()
+    {
+        var filter = _filterBox.Text.Trim().ToLower();
+        IEnumerable<TaskSummary> data = _allTasks;
+
+        if (!string.IsNullOrEmpty(filter))
+            data = data.Where(t =>
+                (t.Type          ?? "").ToLower().Contains(filter) ||
+                (t.Status        ?? "").ToLower().Contains(filter) ||
+                (t.AgentResponse ?? "").ToLower().Contains(filter) ||
+                (t.Error         ?? "").ToLower().Contains(filter));
+
+        data = _sortCol switch
+        {
+            0 => _sortAsc ? data.OrderBy(t => t.Type)         : data.OrderByDescending(t => t.Type),
+            1 => _sortAsc ? data.OrderBy(t => t.Status)       : data.OrderByDescending(t => t.Status),
+            2 => _sortAsc ? data.OrderBy(t => t.StartedAt)    : data.OrderByDescending(t => t.StartedAt),
+            3 => _sortAsc ? data.OrderBy(t => t.CompletedAt.HasValue && t.StartedAt.HasValue
+                                ? t.CompletedAt.Value - t.StartedAt.Value : TimeSpan.Zero)
+                          : data.OrderByDescending(t => t.CompletedAt.HasValue && t.StartedAt.HasValue
+                                ? t.CompletedAt.Value - t.StartedAt.Value : TimeSpan.Zero),
+            4 => _sortAsc ? data.OrderBy(t => t.AgentResponse ?? t.Error)
+                          : data.OrderByDescending(t => t.AgentResponse ?? t.Error),
+            _ => data   // no sort
+        };
+
+        _taskList.BeginUpdate();
+        _taskList.Items.Clear();
+        foreach (var t in data)
+        {
+            var duration = t.CompletedAt.HasValue && t.StartedAt.HasValue
+                ? FormatDuration(t.CompletedAt.Value - t.StartedAt.Value)
+                : t.StartedAt.HasValue ? "running…" : "—";
+
+            var note       = string.IsNullOrWhiteSpace(t.Error) ? t.AgentResponse : t.Error;
+            var statusText = t.AgentReported && t.Status == "Succeeded" ? "Succeeded ✔" : t.Status ?? "—";
+
+            var item = new ListViewItem(t.Type ?? "—");
+            item.SubItems.Add(statusText);
+            item.SubItems.Add(t.StartedAt?.ToLocalTime().ToString("MM/dd HH:mm:ss") ?? "—");
+            item.SubItems.Add(duration);
+            item.SubItems.Add(note ?? "");
+            item.Tag = t;
+
+            item.ForeColor = (t.Status ?? "") switch
+            {
+                "Succeeded" when t.AgentReported => Color.FromArgb(80,  220, 100),
+                "Succeeded"                      => Color.FromArgb(110, 165, 110),
+                "Partial"                        => Color.FromArgb(255, 185,  60),
+                "Failed" or "TimedOut"           => Color.FromArgb(255, 100,  80),
+                "Running"                        => Color.FromArgb(100, 180, 255),
+                "Awaiting"                       => Color.FromArgb(200, 160, 255),
+                "Deferred" or "Blocked"
+                             or "Future"         => Color.FromArgb(150, 150, 170),
+                _                                => TextPrimary
+            };
+            item.SubItems[4].ForeColor = string.IsNullOrWhiteSpace(t.Error)
+                ? Color.FromArgb(150, 150, 160)
+                : Color.FromArgb(255, 130, 110);
+
+            _taskList.Items.Add(item);
+        }
+        _taskList.EndUpdate();
     }
 
     private async Task RefreshScheduleAsync()
