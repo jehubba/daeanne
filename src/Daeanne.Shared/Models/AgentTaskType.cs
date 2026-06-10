@@ -9,6 +9,7 @@ public enum AgentTaskType
     Generic,
     DailySummary,
     WeeklyOneOnOne,
+    MorningBriefing,
     InboundSms,
     Diagnostic,
     TrendAnalyzer,

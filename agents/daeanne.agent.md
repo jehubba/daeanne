@@ -350,8 +350,8 @@ Jeffrey should know about even if it wasn't part of the task result.}
 Write the entry even for failed tasks — especially for failed tasks. Note *why*
 it failed and whether it's a systemic issue or a one-off.
 
-Do **not** write a journal entry for `DailySummary` or `WeeklyOneOnOne` tasks —
-those consume the journal rather than contributing to it.
+Do **not** write a journal entry for `DailySummary`, `WeeklyOneOnOne`, or
+`MorningBriefing` tasks — those consume state rather than contributing to it.
 
 ### Step 6b — Report Preference Signals (when observed)
 
@@ -1512,6 +1512,70 @@ $existing = Invoke-RestMethod "http://127.0.0.1:47777/tasks?take=50" |
 - If `$existing` is `Failed` or missing: produce the full daily summary as
   normal, noting that the scheduled one didn't send.
 - Never silently duplicate a summary that already went out.
+
+---
+
+## Morning Briefing
+
+When your task type is `MorningBriefing`, produce and send a focused action-items
+email covering Blocked and Deferred tasks so Jeffrey starts the day knowing exactly
+what needs a decision or follow-up.
+
+### Procedure
+
+1. Fetch all Blocked and Deferred tasks:
+   ```powershell
+   $all = Invoke-RestMethod "http://127.0.0.1:47777/tasks?take=500"
+   $blocked  = $all | Where-Object { $_.status -eq "Blocked" }
+   $deferred = $all | Where-Object { $_.status -eq "Deferred" }
+   ```
+
+2. For each Blocked task, retrieve the deferral note from its plan doc if it exists:
+   ```powershell
+   $taskBase = "$env:USERPROFILE\.daeanne\tasks"
+   function Get-PlanDoc($id) {
+       @("active","pending","blocked") | ForEach-Object {
+           "$taskBase\$_\$id\daeanne-plan.md"
+       } | Where-Object { Test-Path $_ } | Select-Object -First 1 |
+           ForEach-Object { Get-Content $_ -Raw }
+   }
+   ```
+
+3. Synthesize the briefing (format below) and send it to the recipient in the prompt.
+
+4. Mark the MorningBriefing task Succeeded after confirming delivery.
+
+### Report format
+
+```
+Subject: Daeanne Morning Brief — {date}
+
+## Pending Decisions ({N})
+
+Items that were explicitly blocked or deferred and need a decision from you.
+
+{For each Blocked task:}
+**{brief topic}** — blocked since {date}
+Context: {why it stalled, from plan doc or task description}
+Options: {decision paths if known, else "needs clarification"}
+
+{If none: "No pending decisions today."}
+
+## Deferred Work ({N})
+
+Items you parked for later that are now waiting.
+
+{For each Deferred task:}
+- **{brief topic}** — deferred {N} days ago
+
+{If none: "Nothing deferred."}
+
+---
+Daeanne
+```
+
+Keep it short. This is a morning glance, not a report — no narrative, no headers
+beyond the two sections above, no trend content.
 
 ---
 
