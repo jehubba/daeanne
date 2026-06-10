@@ -130,7 +130,14 @@ auth routing rules (require auth on all routes).
 
 ## Authentication
 
-SWA built-in Microsoft provider. Configuration in `staticwebapp.config.json`:
+SWA built-in auth (Easy Auth) — enforced at the SWA edge, not in application code. Auth is
+handled entirely by the platform: no SDK, no token handling, no middleware in Blazor or Functions.
+
+Both **Microsoft/Entra** and **GitHub** providers are configured OOTB via `staticwebapp.config.json`.
+Functions receive the authenticated user's identity via the `x-ms-client-principal` header, injected
+automatically by SWA. No cross-service auth wiring needed.
+
+Configuration in `staticwebapp.config.json`:
 
 ```json
 {
@@ -142,6 +149,12 @@ SWA built-in Microsoft provider. Configuration in `staticwebapp.config.json`:
           "openIdIssuer": "https://login.microsoftonline.com/<tenant-id>/v2.0",
           "clientIdSettingName": "AZURE_CLIENT_ID",
           "clientSecretSettingName": "AZURE_CLIENT_SECRET"
+        }
+      },
+      "github": {
+        "registration": {
+          "clientIdSettingName": "GITHUB_CLIENT_ID",
+          "clientSecretSettingName": "GITHUB_CLIENT_SECRET"
         }
       }
     }
@@ -156,9 +169,12 @@ SWA built-in Microsoft provider. Configuration in `staticwebapp.config.json`:
 }
 ```
 
-Additionally, the SWA should be configured with an allowed identities list (Jeffrey's
-object ID / email) as an app setting, enforced in the API Functions, to prevent any
-other Microsoft-authenticated user from accessing the app.
+Required app settings (SWA environment variables):
+- `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` — Entra app registration
+- `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` — GitHub OAuth app (created at github.com/settings/developers)
+
+Additionally, enforce an allowed-identities check in the API Functions (Jeffrey's Entra object ID
+or GitHub login) to prevent any other authenticated user from accessing the app.
 
 ---
 
@@ -243,9 +259,10 @@ PWA service worker caching:
 | Result delivery: polling vs. SSE? | **Resolved: polling.** SSE or SignalR for v2. |
 | Read path: SB round-trips vs. Table Storage mirroring? | **Resolved: Table Storage mirroring.** See below. |
 | Storage: SWA storage, private endpoint, or standalone blob? | **Resolved: standalone blob, no PE, SAS from Functions.** See File Storage section. |
-| Table Storage account location | **Pending:** same subscription as SB is fine — confirm before M1. |
-| Blob storage: same account as Table Storage or separate? | **Pending:** same account, separate containers is clean — confirm before M1. |
-| Confirm M0 scaffold as next action? | **Pending Jeffrey confirmation.** |
+| Table Storage account location | **Resolved: co-locate with existing SB subscription region.** |
+| Blob storage: same account as Table Storage or separate? | **Resolved: same account, separate containers.** |
+| Confirm M0 scaffold as next action? | **Resolved: proceeding to M0.** |
+| Auth: cross-service wiring or SWA built-in? | **Resolved: SWA Easy Auth (built-in).** GitHub + Entra OOTB, zero app code. |
 
 ### Read path — resolved: Table Storage mirroring
 
@@ -260,4 +277,4 @@ populating a task list would require N round trips or one slow "fetch all." Tabl
 ---
 
 *Last updated: 2026-06-10*
-*Status: read path and storage resolved — pending M0 scaffold confirmation*
+*Status: all questions resolved — proceeding to M0 scaffold*
