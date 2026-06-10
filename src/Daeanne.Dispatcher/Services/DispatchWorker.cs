@@ -77,39 +77,65 @@ public class DispatchWorker(
                 // Process exited cleanly — do NOT mark completion. That is Daeanne's responsibility.
                 // She will call PATCH /tasks/{id}/status → Succeeded when her work is truly done.
                 // The dir stays in active/ until the TaskCleanupWorker moves it after her signal.
+                // However, persist stdout as fallback ResultJson now so the Note column is populated
+                // even if the agent's PATCH omits resultJson.
                 using var scope = scopeFactory.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<DispatcherDbContext>();
                 var t = await db.Tasks.FindAsync([taskId], ct);
                 if (t?.Status == AgentTaskStatus.Awaiting)
+                {
                     logger.LogInformation("Task {TaskId} process exited but status is Awaiting — leaving suspended.", taskId);
+                }
                 else
+                {
+                    if (t is not null && t.ResultJson is null && result.ResultJson is not null)
+                    {
+                        t.ResultJson = result.ResultJson;
+                        t.UpdatedAt  = DateTime.UtcNow;
+                        await db.SaveChangesAsync(ct);
+                    }
                     logger.LogInformation("Task {TaskId} process exited cleanly — awaiting Daeanne's self-report via PATCH.", taskId);
+                }
             }
             else
             {
                 // Process crashed, timed out, or returned non-zero exit — definitive failure.
-                // DispatchWorker is authoritative for error states; move dir immediately.
+                // Auth errors are parked as Blocked so the user can promote after /login.
+                // DispatchWorker is authoritative for error states; move dir immediately (except for Blocked).
                 using var scope = scopeFactory.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<DispatcherDbContext>();
                 var t = await db.Tasks.FindAsync([taskId], ct);
 
                 if (t is not null && !t.IsTerminal())
                 {
-                    var finalStatus = result.Error?.Contains("timed out") == true
-                        ? AgentTaskStatus.TimedOut
-                        : AgentTaskStatus.Failed;
+                    AgentTaskStatus finalStatus;
+                    if (result.IsAuthError)
+                        finalStatus = AgentTaskStatus.Blocked;
+                    else if (result.Error?.Contains("timed out") == true)
+                        finalStatus = AgentTaskStatus.TimedOut;
+                    else
+                        finalStatus = AgentTaskStatus.Failed;
 
-                    var newWorkDir = TaskDirManager.MoveToFinalLocation(
-                        _config.ResolvedWorkDir, taskId, finalStatus, t.IsScheduled, logger);
+                    // Blocked tasks keep their active/ dir — they can be promoted and retried.
+                    // Failed/TimedOut tasks move to their final location.
+                    if (finalStatus != AgentTaskStatus.Blocked)
+                    {
+                        var newWorkDir = TaskDirManager.MoveToFinalLocation(
+                            _config.ResolvedWorkDir, taskId, finalStatus, t.IsScheduled, logger);
+                        t.ResultJson = TaskDirManager.UpdateResultJsonWorkDir(t.ResultJson, newWorkDir);
+                    }
+
+                    var errorMsg = result.IsAuthError
+                        ? "Copilot auth expired — run /login in this Copilot CLI session, then promote this task to Pending."
+                        : result.Error;
 
                     t.Status      = finalStatus;
-                    t.Error       = result.Error;
+                    t.Error       = errorMsg;
                     t.CompletedAt = DateTime.UtcNow;
                     t.UpdatedAt   = DateTime.UtcNow;
-                    t.ResultJson  = TaskDirManager.UpdateResultJsonWorkDir(t.ResultJson, newWorkDir);
                     await db.SaveChangesAsync(ct);
 
-                    logger.LogWarning("Task {TaskId} → {Status}: {Error}", taskId, finalStatus, result.Error);
+                    logger.LogWarning("Task {TaskId} → {Status}: {Error}", taskId, finalStatus, errorMsg);
 
                     if (t.ParentTaskId.HasValue)
                         await TaskEndpoints.TriggerParentResumeAsync(t, db, queue, _config, logger);

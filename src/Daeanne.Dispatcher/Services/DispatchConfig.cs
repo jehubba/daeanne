@@ -39,6 +39,13 @@ public class DispatchConfig
     /// </summary>
     public int CleanupIntervalMinutes { get; set; } = 60;
 
+    /// <summary>
+    /// Full path to the copilot CLI executable.
+    /// Defaults to "copilot" (relies on PATH) — set explicitly to avoid PATH issues
+    /// when the Dispatcher is started from a session with a stripped environment.
+    /// </summary>
+    public string CopilotExe { get; set; } = "copilot";
+
     /// <summary>Maps AgentTaskType → Copilot CLI agent name (as in ~/.copilot/agents/<name>.agent.md).</summary>
     public Dictionary<string, string> AgentMap { get; set; } = new()
     {

@@ -90,7 +90,7 @@ public class CopilotCliDispatcher(
 
         var psi = new ProcessStartInfo
         {
-            FileName               = "copilot",
+            FileName               = _config.CopilotExe,
             RedirectStandardOutput = !_config.ShowAgentWindow,
             RedirectStandardError  = !_config.ShowAgentWindow,
             UseShellExecute        = false,
@@ -130,7 +130,7 @@ public class CopilotCliDispatcher(
 
         var psi = new ProcessStartInfo
         {
-            FileName               = "copilot",
+            FileName               = _config.CopilotExe,
             RedirectStandardOutput = !_config.ShowAgentWindow,
             RedirectStandardError  = !_config.ShowAgentWindow,
             UseShellExecute        = false,
@@ -192,10 +192,22 @@ public class CopilotCliDispatcher(
 
             if (process.ExitCode != 0)
             {
-                logger.LogWarning("Task {TaskId} agent exited with code {Code}. stderr: {Err}",
-                    taskId, process.ExitCode, stderr);
+                var isAuthError =
+                    stderr.Contains("Authorization error", StringComparison.OrdinalIgnoreCase) ||
+                    stderr.Contains("you may need to run /login", StringComparison.OrdinalIgnoreCase);
+
+                if (isAuthError)
+                    logger.LogError(
+                        "Task {TaskId}: Copilot CLI auth expired (exit {Code}). " +
+                        "Run /login in this Copilot CLI session, then promote the task to Pending.",
+                        taskId, process.ExitCode);
+                else
+                    logger.LogWarning("Task {TaskId} agent exited with code {Code}. stderr: {Err}",
+                        taskId, process.ExitCode, stderr);
+
                 return new DispatchResult(false, null,
-                    $"Agent exited with code {process.ExitCode}. stderr: {stderr.Trim()}");
+                    $"Agent exited with code {process.ExitCode}. stderr: {stderr.Trim()}",
+                    IsAuthError: isAuthError);
             }
 
             // Strip ANSI/VT100 escape codes — the CLI may emit progress spinners, colour,

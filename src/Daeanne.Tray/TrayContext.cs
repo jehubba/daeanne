@@ -19,6 +19,11 @@ internal class TrayContext : ApplicationContext
     private Dictionary<string, string> _lastTaskStatuses = new();
     private bool _firstPoll = true;
 
+    // Health transition tracking — suppress balloons on very first poll
+    private bool  _firstHealthPoll    = true;
+    private bool  _prevDispatcherOk   = true;
+    private bool  _prevBridgeOk       = true;
+
     // Icon state
     private enum TrayState { Green, Orange, Red }
     private TrayState _currentState = TrayState.Green;
@@ -88,6 +93,32 @@ internal class TrayContext : ApplicationContext
             statusText = "Healthy";
 
         _trayIcon.Text = $"Daeanne — {statusText}";
+
+        // Balloon on health state transitions (skip the very first poll)
+        if (!_firstHealthPoll)
+        {
+            if (!dispatcherOk && _prevDispatcherOk)
+                _trayIcon.ShowBalloonTip(5000, "⚠ Daeanne — Dispatcher Down",
+                    "Dispatcher is unreachable. Tasks will not be dispatched until it restarts.",
+                    ToolTipIcon.Warning);
+
+            if (!bridgeOk && _prevBridgeOk)
+                _trayIcon.ShowBalloonTip(5000, "⚠ Daeanne — Bridge Down",
+                    "Bridge is unreachable. Emails and SMS will not be sent until it restarts.",
+                    ToolTipIcon.Warning);
+
+            if (dispatcherOk && !_prevDispatcherOk)
+                _trayIcon.ShowBalloonTip(3000, "✅ Daeanne — Dispatcher Back",
+                    "Dispatcher is reachable again.", ToolTipIcon.Info);
+
+            if (bridgeOk && !_prevBridgeOk)
+                _trayIcon.ShowBalloonTip(3000, "✅ Daeanne — Bridge Back",
+                    "Bridge is reachable again.", ToolTipIcon.Info);
+        }
+
+        _firstHealthPoll  = false;
+        _prevDispatcherOk = dispatcherOk;
+        _prevBridgeOk     = bridgeOk;
     }
 
     private async Task<bool> CheckHealthAsync(string url)
@@ -120,15 +151,17 @@ internal class TrayContext : ApplicationContext
             }
             else
             {
-                // Detect transitions to terminal states since last poll → balloon tip
+                // Detect transitions to terminal/blocked states since last poll → balloon tip
                 foreach (var t in tasks)
                 {
-                    var isNewlyTerminal =
-                        (t.Status == "Succeeded" || t.Status == "Failed" || t.Status == "TimedOut") &&
-                        (!_lastTaskStatuses.TryGetValue(t.Id, out var prev) ||
-                         (prev != "Succeeded" && prev != "Failed" && prev != "TimedOut"));
+                    static bool IsNotableStatus(string? s) =>
+                        s is "Succeeded" or "Failed" or "TimedOut" or "Blocked";
 
-                    if (isNewlyTerminal)
+                    var isNewlyNotable =
+                        IsNotableStatus(t.Status) &&
+                        (!_lastTaskStatuses.TryGetValue(t.Id, out var prev) || !IsNotableStatus(prev));
+
+                    if (isNewlyNotable)
                         ShowBalloon(t);
                 }
 
@@ -144,6 +177,21 @@ internal class TrayContext : ApplicationContext
 
     private void ShowBalloon(TaskPoll t)
     {
+        // Auth-expired tasks get a specific actionable balloon
+        if (t.Status == "Blocked" &&
+            t.Error?.Contains("Copilot auth expired", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            _trayIcon.ShowBalloonTip(6000,
+                $"🔐 Copilot Auth Expired — {t.Type ?? "Task"}",
+                "Run /login in the Copilot CLI, then promote the task to Pending.",
+                ToolTipIcon.Warning);
+            return;
+        }
+
+        // Non-auth Blocked tasks are parked intentionally by Daeanne — no balloon needed
+        if (t.Status == "Blocked")
+            return;
+
         var icon  = t.Status == "Succeeded" ? ToolTipIcon.Info : ToolTipIcon.Warning;
         var title = $"{(t.Status == "Succeeded" ? "✅" : "❌")} {t.Type ?? "Task"}";
         var text  = t.Status == "Succeeded"

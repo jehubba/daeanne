@@ -259,12 +259,16 @@ public static class TaskEndpoints
         // Update DB status. Do NOT move the task dir here —
         // TaskCleanupWorker runs on a schedule (default 60 min) and moves dirs for
         // all terminal tasks, giving file locks time to release before we attempt moves.
-        task.Status        = newStatus;
-        task.ResultJson    = request.ResultJson;
-        task.Error         = request.Error;
-        task.CompletedAt   = DateTime.UtcNow;
-        task.UpdatedAt     = DateTime.UtcNow;
+        task.Status      = newStatus;
+        task.Error       = request.Error;
+        task.CompletedAt = DateTime.UtcNow;
+        task.UpdatedAt   = DateTime.UtcNow;
         task.AgentReported = true;   // Daeanne explicitly called this endpoint
+
+        // Only overwrite ResultJson if the agent supplied one; preserve any fallback
+        // stdout value captured at dispatch time (written by DispatchWorker on clean exit).
+        if (request.ResultJson is not null)
+            task.ResultJson = request.ResultJson;
 
         await db.SaveChangesAsync(ct);
 

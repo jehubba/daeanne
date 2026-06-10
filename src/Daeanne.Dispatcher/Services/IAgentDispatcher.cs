@@ -15,4 +15,8 @@ public interface IAgentDispatcher
     Task<DispatchResult?> TryResumeAsync(AgentTask task, string workDir, CancellationToken ct = default);
 }
 
-public record DispatchResult(bool Succeeded, string? ResultJson, string? Error);
+/// <param name="IsAuthError">
+/// True when the Copilot CLI exited with an authorization error.
+/// Caller should mark the task Blocked (not Failed) so it can be retried after /login.
+/// </param>
+public record DispatchResult(bool Succeeded, string? ResultJson, string? Error, bool IsAuthError = false);
