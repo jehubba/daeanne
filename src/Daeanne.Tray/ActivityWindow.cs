@@ -121,17 +121,19 @@ internal class ActivityWindow : Form
         header.Controls.Add(headerFlow);
 
         // ── Outer split: sidebar | main ───────────────────────────────────────
+        // SplitterDistance must NOT be set in the object initializer — WinForms
+        // validates it against the actual layout width, which is 0 until the form
+        // is shown. We defer it to the Shown event below.
         var split = new SplitContainer
         {
-            Dock             = DockStyle.Fill,
-            Orientation      = Orientation.Vertical,
-            SplitterDistance = 260,
-            SplitterWidth    = 1,
-            FixedPanel       = FixedPanel.Panel1,
-            BackColor        = Separator,
-            Panel1MinSize    = 200,
-            Panel2MinSize    = 400,
-            IsSplitterFixed  = true
+            Dock            = DockStyle.Fill,
+            Orientation     = Orientation.Vertical,
+            SplitterWidth   = 1,
+            FixedPanel      = FixedPanel.Panel1,
+            BackColor       = Separator,
+            Panel1MinSize   = 200,
+            Panel2MinSize   = 400,
+            IsSplitterFixed = true
         };
 
         // ── SIDEBAR ───────────────────────────────────────────────────────────
@@ -221,12 +223,11 @@ internal class ActivityWindow : Form
         // ── MAIN PANEL ────────────────────────────────────────────────────────
         var mainSplit = new SplitContainer
         {
-            Dock             = DockStyle.Fill,
-            Orientation      = Orientation.Horizontal,
-            SplitterDistance = 440,
-            SplitterWidth    = 1,
-            BackColor        = Separator,
-            Panel2MinSize    = 70
+            Dock          = DockStyle.Fill,
+            Orientation   = Orientation.Horizontal,
+            SplitterWidth = 1,
+            BackColor     = Separator,
+            Panel2MinSize = 70
         };
         split.Panel2.Controls.Add(mainSplit);
 
@@ -300,7 +301,13 @@ internal class ActivityWindow : Form
         Controls.Add(split);
         Controls.Add(header);
 
-        Shown += async (_, _) => await RefreshAsync();
+        Shown += async (_, _) =>
+        {
+            // SplitterDistance must be set after layout so the container has real dimensions.
+            split.SplitterDistance     = Math.Min(260, split.Width    - split.Panel2MinSize - split.SplitterWidth);
+            mainSplit.SplitterDistance = Math.Min(440, mainSplit.Height - mainSplit.Panel2MinSize - mainSplit.SplitterWidth);
+            await RefreshAsync();
+        };
     }
 
     // ── Paint helpers ─────────────────────────────────────────────────────────
