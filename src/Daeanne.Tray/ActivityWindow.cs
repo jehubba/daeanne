@@ -151,14 +151,18 @@ internal class ActivityWindow : Form
         rowMenu.Items.Add("View Plan",                 null, OnViewPlan);
         rowMenu.Items.Add("Open Work Dir",             null, OnOpenWorkDir);
         rowMenu.Items.Add("Copy Task ID",              null, OnCopyTaskId);
+        rowMenu.Items.Add("Copy Note",                 null, OnCopyNote);
         rowMenu.Items.Add(new ToolStripSeparator());
         var troubleshootItem = (ToolStripMenuItem)rowMenu.Items.Add("Troubleshoot with Daeanne", null, OnTroubleshoot);
         var viewPlanItem     = (ToolStripMenuItem)rowMenu.Items[0];
+        var copyNoteItem     = (ToolStripMenuItem)rowMenu.Items[3];
 
         rowMenu.Opening += (_, _) =>
         {
             var t = SelectedTask();
+            var note = t is null ? null : (string.IsNullOrWhiteSpace(t.Error) ? t.AgentResponse : t.Error);
             viewPlanItem.Enabled     = ResolveWorkDir(t) is not null;
+            copyNoteItem.Enabled     = !string.IsNullOrWhiteSpace(note);
             troubleshootItem.Enabled = t?.Status is "Failed" or "TimedOut" or "Succeeded" or "Partial" or "Running" or "Awaiting";
         };
 
@@ -411,6 +415,14 @@ internal class ActivityWindow : Form
     private void OnCopyTaskId(object? sender, EventArgs e)
     {
         if (SelectedTask()?.Id is { Length: > 0 } id) Clipboard.SetText(id);
+    }
+
+    private void OnCopyNote(object? sender, EventArgs e)
+    {
+        var t = SelectedTask();
+        if (t is null) return;
+        var note = string.IsNullOrWhiteSpace(t.Error) ? t.AgentResponse : t.Error;
+        if (!string.IsNullOrWhiteSpace(note)) Clipboard.SetText(note);
     }
 
     private async void OnTroubleshoot(object? sender, EventArgs e)
