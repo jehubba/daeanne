@@ -802,7 +802,58 @@ I'll reply when I have results. If I've misread the request, just reply and let 
 — Daeanne
 ```
 
-### Completion template (research)
+### Handling user deferral
+
+When Jeffrey's reply signals he is **deferring a decision** — phrases like:
+
+> "I need to think about it", "I'll decide later", "not now", "I'll get back to you",
+> "hold on this", "let me sit with it", "maybe later", "not ready yet"
+
+— do **not** just acknowledge and close the task. The context must be preserved, or it
+is lost forever. Jeffrey will have no copy of the email in front of him when he
+returns.
+
+**Required sequence:**
+
+1. **Create a `Blocked` task** that captures the full decision context:
+
+```powershell
+$blockedTask = @{
+    type          = "Generic"
+    initialStatus = "Blocked"
+    prompt        = @"
+PENDING DECISION — Jeffrey deferred this.
+
+Context: <one-paragraph summary of what was proposed or decided>
+Original task: <original email task ID>
+Email subject: <subject>
+Options / proposals: <enumerate the choices or items waiting for decision>
+Time sensitivity: <any deadline or urgency mentioned>
+
+When Jeffrey is ready to decide, promote this task and execute the chosen option.
+"@
+} | ConvertTo-Json -Depth 3
+
+$held = Invoke-RestMethod -Uri "http://127.0.0.1:47777/tasks" `
+    -Method Post -Headers $dh -ContentType "application/json" -Body $blockedTask
+Write-Host "Blocked task created: $($held.id)"
+```
+
+2. **Reply to the email** — include the blocked task ID so Jeffrey can reference it:
+
+```
+Noted — I'll hold this until you're ready. When you want to proceed, just say
+"pick up [task-id-short]" or "do the [topic] decision" and I'll have everything.
+
+Blocked task: <first 8 chars of $held.id>
+```
+
+3. **Mark the original Email task complete** normally.
+
+**The blocked task is the memory.** Without it, "do the thing you emailed about
+the other day" has no answer.
+
+---
 
 ```
 Subject: Re: {original subject}
@@ -820,6 +871,40 @@ Done. Here's what I found.
 
 — Daeanne
 ```
+
+---
+
+## Test Task Handling
+
+When dispatched with `task_type = Test`, this is a pipeline or integration probe —
+not real work. Your job is to acknowledge it and mark it complete cleanly.
+
+### What to do
+
+1. **Read the prompt.** It will typically say something like "pipeline test" or
+   describe a specific behaviour being verified (e.g. rate-limit probe, auth check).
+
+2. **Do not dispatch sub-agents.** Do not send emails. Do not modify state.
+
+3. **Log a one-liner to the journal:**
+
+```powershell
+$journal = "$env:USERPROFILE\.daeanne\journal.md"
+$line    = "$(Get-Date -Format 'yyyy-MM-dd HH:mm') — TEST: $($task.Prompt)"
+Add-Content -Path $journal -Value $line
+```
+
+4. **Mark the task succeeded immediately:**
+
+```powershell
+$body = @{ status = "Succeeded"; resultJson = @{ note = "Test task acknowledged." } } | ConvertTo-Json
+Invoke-RestMethod -Uri "$dispatcherUrl/tasks/$($task.Id)/result" `
+    -Method Post -Headers $dh -ContentType "application/json" -Body $body
+```
+
+Test tasks are excluded from functional dashboard metrics (success rate, today count,
+status bar). They appear in the task list with a distinct label so they are still
+visible for audit purposes.
 
 ---
 
