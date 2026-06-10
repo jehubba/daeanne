@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Daeanne.Shared.Models;
 using Microsoft.Extensions.Options;
 
@@ -156,6 +157,13 @@ public class CopilotCliDispatcher(
 
     // ─── Shared process runner ────────────────────────────────────────────────
 
+    // Matches ANSI/VT100 escape sequences (CSI codes, OSC, single-char escapes).
+    private static readonly Regex AnsiEscapeRegex = new(
+        @"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*\x07)",
+        RegexOptions.Compiled);
+
+    private static string StripAnsi(string s) => AnsiEscapeRegex.Replace(s, "");
+
     private async Task<DispatchResult> RunProcessAsync(
         Guid taskId, ProcessStartInfo psi, string workDir, CancellationToken ct)
     {
@@ -167,18 +175,18 @@ public class CopilotCliDispatcher(
             using var process = Process.Start(psi)
                 ?? throw new InvalidOperationException("Failed to start copilot process.");
 
-            string stdout = string.Empty, stderr = string.Empty;
+            string rawStdout = string.Empty, stderr = string.Empty;
 
             if (_config.ShowAgentWindow)
             {
                 await process.WaitForExitAsync(timeoutCts.Token);
                 var outputFile = Path.Combine(workDir, "agent-output.txt");
-                stdout = File.Exists(outputFile) ? await File.ReadAllTextAsync(outputFile, ct) : string.Empty;
+                rawStdout = File.Exists(outputFile) ? await File.ReadAllTextAsync(outputFile, ct) : string.Empty;
             }
             else
             {
-                stdout = await process.StandardOutput.ReadToEndAsync(timeoutCts.Token);
-                stderr = await process.StandardError.ReadToEndAsync(timeoutCts.Token);
+                rawStdout = await process.StandardOutput.ReadToEndAsync(timeoutCts.Token);
+                stderr    = await process.StandardError.ReadToEndAsync(timeoutCts.Token);
                 await process.WaitForExitAsync(timeoutCts.Token);
             }
 
@@ -190,11 +198,37 @@ public class CopilotCliDispatcher(
                     $"Agent exited with code {process.ExitCode}. stderr: {stderr.Trim()}");
             }
 
+            // Strip ANSI/VT100 escape codes — the CLI may emit progress spinners, colour,
+            // or cursor-control sequences that make the output unreadable to downstream agents.
+            var stdout    = StripAnsi(rawStdout).Trim();
+            var ansiFound = stdout.Length != rawStdout.TrimEnd().Length;
+
+            if (ansiFound)
+                logger.LogDebug("Task {TaskId}: stripped ANSI codes from output " +
+                    "(raw {RawLen} chars → cleaned {CleanLen} chars).\nRaw output:\n{Raw}",
+                    taskId, rawStdout.Length, stdout.Length, rawStdout);
+
+            // Warn when stripping reduced a non-trivial output to near-nothing — that indicates
+            // the sub-agent produced only terminal UI noise and no readable content.
+            if (ansiFound && stdout.Length < 20 && rawStdout.TrimEnd().Length > 100)
+            {
+                var warning =
+                    $"\n\n> ⚠ **Dispatcher warning**: sub-agent output was {rawStdout.TrimEnd().Length} bytes " +
+                    $"raw but only {stdout.Length} chars after ANSI stripping. " +
+                    $"The output may be unusable — consider retrying or doing this work inline.\n";
+
+                logger.LogWarning("Task {TaskId}: near-empty output after ANSI strip " +
+                    "(raw={RawLen}, stripped={StrippedLen}). Writing warning to plan doc.",
+                    taskId, rawStdout.TrimEnd().Length, stdout.Length);
+
+                TryAppendToPlanDoc(workDir, warning);
+            }
+
             logger.LogInformation("Task {TaskId} completed. Output length: {Len}", taskId, stdout.Length);
 
             var resultJson = JsonSerializer.Serialize(new
             {
-                response   = stdout.Trim(),
+                response   = stdout,
                 workDir,
                 sessionLog = Path.Combine(workDir, "session.md")
             });
@@ -215,6 +249,17 @@ public class CopilotCliDispatcher(
             logger.LogError(ex, "Unexpected error dispatching task {TaskId}", taskId);
             return new DispatchResult(false, null, ex.Message);
         }
+    }
+
+    private static void TryAppendToPlanDoc(string workDir, string text)
+    {
+        try
+        {
+            var planDoc = Path.Combine(workDir, "daeanne-plan.md");
+            if (File.Exists(planDoc))
+                File.AppendAllText(planDoc, text);
+        }
+        catch { /* best-effort — never fail the task over a plan doc write */ }
     }
 
     // ─── Session ID extraction ────────────────────────────────────────────────
