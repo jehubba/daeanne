@@ -1,13 +1,20 @@
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Daeanne.Shared.Models;
 
 namespace Daeanne.Dispatcher.Services;
 
+/// <summary>
+/// Persists principal preference memory to %APPDATA%\daeanne\preferences.json.
+///
+/// Write path: Daeanne explicitly calls PATCH /preferences when she observes
+/// a clear preference signal from Jeffrey. C# is a dumb store — no inference here.
+///
+/// Read path: BuildPrincipalPreferencesBlock() is injected into every dispatched
+/// task prompt so all agents inherit Jeffrey's communication and working-style prefs.
+/// </summary>
 public sealed class PreferenceMemoryService(ILogger<PreferenceMemoryService> logger)
 {
     private const int CurrentVersion = 1;
-    private const int MaxObservedPatterns = 50;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -48,41 +55,57 @@ public sealed class PreferenceMemoryService(ILogger<PreferenceMemoryService> log
             """;
     }
 
-    public void UpdateFromTaskClose(AgentTask task)
+    /// <summary>
+    /// Applies explicit preference updates as reported by Daeanne.
+    /// Each update merges into the matching category dictionary.
+    /// Unknown categories are ignored — only "communication" and "workingStyle" are supported.
+    /// </summary>
+    public void ApplyExplicit(IEnumerable<PreferenceUpdate> updates)
     {
-        if (string.IsNullOrWhiteSpace(task.Prompt))
-            return;
-
-        var updates = ExtractUpdates(task.Prompt).ToList();
-        if (updates.Count == 0)
-            return;
+        var list = updates.ToList();
+        if (list.Count == 0) return;
 
         lock (_sync)
         {
             var document = LoadUnsafe();
-            var changed = false;
+            var changed  = false;
 
-            foreach (var update in updates)
+            foreach (var u in list)
             {
-                changed |= ApplyUpdate(document, update);
+                var key   = u.Key.Trim();
+                var value = u.Value.Trim();
+                if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(value)) continue;
+
+                var map = u.Category.Trim().ToLowerInvariant() switch
+                {
+                    "communication" => document.Communication,
+                    "workingstyle"  => document.WorkingStyle,
+                    _               => null
+                };
+
+                if (map is null)
+                {
+                    logger.LogWarning("ApplyExplicit: unknown preference category '{Cat}' — skipped.", u.Category);
+                    continue;
+                }
+
+                if (!map.TryGetValue(key, out var existing) || existing != value)
+                {
+                    map[key] = value;
+                    changed  = true;
+                    logger.LogInformation("Preference updated: [{Cat}] {Key} = {Value}", u.Category, key, value);
+                }
             }
 
-            if (!changed)
-                return;
-
+            if (!changed) return;
             document.LastUpdated = DateTime.UtcNow;
-            Prune(document);
             SaveUnsafe(document);
-            logger.LogInformation("Updated preferences from task close hook for task {TaskId}", task.Id);
         }
     }
 
     private PreferenceDocument Load()
     {
-        lock (_sync)
-        {
-            return LoadUnsafe();
-        }
+        lock (_sync) { return LoadUnsafe(); }
     }
 
     private PreferenceDocument LoadUnsafe()
@@ -90,7 +113,7 @@ public sealed class PreferenceMemoryService(ILogger<PreferenceMemoryService> log
         EnsurePreferencesFileExists();
         try
         {
-            var json = File.ReadAllText(_preferencesPath);
+            var json   = File.ReadAllText(_preferencesPath);
             var parsed = JsonSerializer.Deserialize<PreferenceDocument>(json, JsonOptions);
             return PreferenceDocument.Normalize(parsed);
         }
@@ -105,263 +128,46 @@ public sealed class PreferenceMemoryService(ILogger<PreferenceMemoryService> log
 
     private void SaveUnsafe(PreferenceDocument document)
     {
-        document.Version = CurrentVersion;
+        document.Version     = CurrentVersion;
         document.LastUpdated = DateTime.UtcNow;
-        var json = JsonSerializer.Serialize(document, JsonOptions);
-        File.WriteAllText(_preferencesPath, json);
-    }
-
-    private static IEnumerable<PreferenceUpdate> ExtractUpdates(string prompt)
-    {
-        if (prompt.Contains("just give me the bullets", StringComparison.OrdinalIgnoreCase))
-        {
-            yield return new PreferenceUpdate(
-                "communication",
-                "format",
-                "markdown, bullet findings for research, prose for analysis",
-                false);
-        }
-
-        if (prompt.Contains("executive summary", StringComparison.OrdinalIgnoreCase))
-        {
-            yield return new PreferenceUpdate(
-                "communication",
-                "preferredLength",
-                "executive-summary by default, detail on request",
-                false);
-        }
-
-        if (prompt.Contains("no pleasantries", StringComparison.OrdinalIgnoreCase))
-        {
-            yield return new PreferenceUpdate(
-                "communication",
-                "tone",
-                "direct, no pleasantries",
-                false);
-        }
-
-        if (prompt.Contains("clear tradeoffs", StringComparison.OrdinalIgnoreCase))
-        {
-            yield return new PreferenceUpdate(
-                "workingStyle",
-                "decisionStyle",
-                "prefers options with clear tradeoffs, not open-ended questions",
-                false);
-        }
-
-        foreach (Match match in Regex.Matches(prompt,
-                     @"\bprefers?\s+(?<preferred>[^.,;\n]{1,80}?)\s+over\s+(?<alternative>[^.,;\n]{1,80}?)([.!,;]|$)",
-                     RegexOptions.IgnoreCase))
-        {
-            var preferred = match.Groups["preferred"].Value.Trim();
-            var alternative = match.Groups["alternative"].Value.Trim();
-            if (string.IsNullOrWhiteSpace(preferred) || string.IsNullOrWhiteSpace(alternative))
-                continue;
-
-            yield return new PreferenceUpdate(
-                "topicContext",
-                "preference",
-                $"prefers {preferred} over {alternative}",
-                true);
-        }
-    }
-
-    private static bool ApplyUpdate(PreferenceDocument document, PreferenceUpdate update)
-    {
-        var key = update.Key.Trim();
-        var value = update.Value.Trim();
-        if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(value))
-            return false;
-
-        var category = update.Category.Trim();
-        if (category.Equals("communication", StringComparison.OrdinalIgnoreCase))
-            return ApplyExplicitMapUpdate(
-                document.Communication,
-                category: "communication",
-                key,
-                value,
-                update.Inferred,
-                document);
-
-        if (category.Equals("workingStyle", StringComparison.OrdinalIgnoreCase))
-            return ApplyExplicitMapUpdate(
-                document.WorkingStyle,
-                category: "workingStyle",
-                key,
-                value,
-                update.Inferred,
-                document);
-
-        if (category.Equals("topicContext", StringComparison.OrdinalIgnoreCase))
-            return ApplyTopicContextUpdate(document, key, value, update.Inferred);
-
-        return false;
-    }
-
-    private static bool ApplyExplicitMapUpdate(
-        Dictionary<string, string> map,
-        string category,
-        string key,
-        string value,
-        bool inferred,
-        PreferenceDocument document)
-    {
-        if (inferred)
-            return AddObservedPattern(document, category, key, value);
-
-        if (map.TryGetValue(key, out var existing) &&
-            string.Equals(existing, value, StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        map[key] = value;
-        return true;
-    }
-
-    private static bool ApplyTopicContextUpdate(PreferenceDocument document, string key, string value, bool inferred)
-    {
-        if (document.TopicContext.TryGetValue(key, out var existing) &&
-            string.Equals(existing.Value, value, StringComparison.Ordinal) &&
-            existing.Inferred == inferred)
-        {
-            if (inferred)
-                // Keep occurrence counts/timestamps current even when topicContext value is unchanged.
-                return AddObservedPattern(document, "topicContext", key, value);
-            return false;
-        }
-
-        document.TopicContext[key] = new TopicContextPreference
-        {
-            Value = value,
-            Inferred = inferred,
-            LastUpdated = DateTime.UtcNow
-        };
-
-        if (inferred)
-            AddObservedPattern(document, "topicContext", key, value);
-
-        return true;
-    }
-
-    private static bool AddObservedPattern(PreferenceDocument document, string category, string key, string value)
-    {
-        var now = DateTime.UtcNow;
-        var pattern = document.ObservedPatterns.FirstOrDefault(p =>
-            p.Category.Equals(category, StringComparison.OrdinalIgnoreCase) &&
-            p.Key.Equals(key, StringComparison.OrdinalIgnoreCase) &&
-            p.Value.Equals(value, StringComparison.OrdinalIgnoreCase));
-
-        if (pattern is null)
-        {
-            document.ObservedPatterns.Add(new ObservedPattern
-            {
-                Category = category,
-                Key = key,
-                Value = value,
-                Inferred = true,
-                Occurrences = 1,
-                FirstObserved = now,
-                LastObserved = now
-            });
-            return true;
-        }
-
-        pattern.Occurrences++;
-        pattern.LastObserved = now;
-
-        // Never auto-overwrite explicit topic context with inferred patterns.
-        if (pattern.Occurrences >= 2 && document.TopicContext.TryGetValue(key, out var topic) && !topic.Inferred)
-            return true;
-
-        if (pattern.Occurrences >= 2 && !document.TopicContext.ContainsKey(key))
-        {
-            document.TopicContext[key] = new TopicContextPreference
-            {
-                Value = value,
-                Inferred = true,
-                LastUpdated = now
-            };
-        }
-
-        return true;
-    }
-
-    private static void Prune(PreferenceDocument document)
-    {
-        if (document.ObservedPatterns.Count <= MaxObservedPatterns)
-            return;
-
-        document.ObservedPatterns = document.ObservedPatterns
-            .OrderByDescending(p => p.LastObserved)
-            .Take(MaxObservedPatterns)
-            .ToList();
+        File.WriteAllText(_preferencesPath, JsonSerializer.Serialize(document, JsonOptions));
     }
 }
 
 public sealed class PreferenceDocument
 {
-    public int Version { get; set; } = 1;
+    public int      Version     { get; set; } = 1;
     public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
     public Dictionary<string, string> Communication { get; set; } = new(StringComparer.OrdinalIgnoreCase);
-    public Dictionary<string, string> WorkingStyle { get; set; } = new(StringComparer.OrdinalIgnoreCase);
-    public Dictionary<string, TopicContextPreference> TopicContext { get; set; } = new(StringComparer.OrdinalIgnoreCase);
-    public List<ObservedPattern> ObservedPatterns { get; set; } = [];
+    public Dictionary<string, string> WorkingStyle  { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
-    public static PreferenceDocument CreateDefault()
+    public static PreferenceDocument CreateDefault() => new()
     {
-        var now = DateTime.UtcNow;
-        return new PreferenceDocument
+        Version     = 1,
+        LastUpdated = DateTime.UtcNow,
+        Communication = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            Version = 1,
-            LastUpdated = now,
-            Communication = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["preferredLength"] = "executive-summary by default, detail on request",
-                ["format"] = "markdown, bullet findings for research, prose for analysis",
-                ["tone"] = "direct, no pleasantries"
-            },
-            WorkingStyle = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["decisionStyle"] = "prefers options with clear tradeoffs, not open-ended questions",
-                ["confirmationPreference"] = "explicit confirm only for irreversible actions",
-                ["escalationThreshold"] = "escalate on ambiguity that would waste >10 min if wrong"
-            },
-            TopicContext = new Dictionary<string, TopicContextPreference>(StringComparer.OrdinalIgnoreCase),
-            ObservedPatterns = []
-        };
-    }
+            ["preferredLength"] = "executive-summary by default, detail on request",
+            ["format"]          = "markdown, bullet findings for research, prose for analysis",
+            ["tone"]            = "direct, no pleasantries"
+        },
+        WorkingStyle = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["decisionStyle"]          = "prefers options with clear tradeoffs, not open-ended questions",
+            ["confirmationPreference"] = "explicit confirm only for irreversible actions",
+            ["escalationThreshold"]    = "escalate on ambiguity that would waste >10 min if wrong"
+        }
+    };
 
     public static PreferenceDocument Normalize(PreferenceDocument? document)
     {
-        if (document is null)
-            return CreateDefault();
-
+        if (document is null) return CreateDefault();
         document.Communication ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        document.WorkingStyle ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        document.TopicContext ??= new Dictionary<string, TopicContextPreference>(StringComparer.OrdinalIgnoreCase);
-        document.ObservedPatterns ??= [];
-
+        document.WorkingStyle  ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         return document;
     }
 }
 
-public sealed class TopicContextPreference
-{
-    public string Value { get; set; } = string.Empty;
-    public bool Inferred { get; set; }
-    public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
-}
+public readonly record struct PreferenceUpdate(string Category, string Key, string Value);
 
-public sealed class ObservedPattern
-{
-    public string Category { get; set; } = string.Empty;
-    public string Key { get; set; } = string.Empty;
-    public string Value { get; set; } = string.Empty;
-    public bool Inferred { get; set; } = true;
-    public int Occurrences { get; set; } = 1;
-    public DateTime FirstObserved { get; set; } = DateTime.UtcNow;
-    public DateTime LastObserved { get; set; } = DateTime.UtcNow;
-}
 
-public readonly record struct PreferenceUpdate(string Category, string Key, string Value, bool Inferred);

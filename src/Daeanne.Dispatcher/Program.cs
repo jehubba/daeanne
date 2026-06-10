@@ -183,5 +183,6 @@ app.MapOutboxSmsEndpoints();
 app.MapSmsConversationEndpoints();
 app.MapSchedulerEndpoints();
 app.MapSchedulerCronEndpoints();
+app.MapPreferencesEndpoints();
 
 app.Run();

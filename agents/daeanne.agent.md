@@ -353,6 +353,55 @@ it failed and whether it's a systemic issue or a one-off.
 Do **not** write a journal entry for `DailySummary` or `WeeklyOneOnOne` tasks —
 those consume the journal rather than contributing to it.
 
+### Step 6b — Report Preference Signals (when observed)
+
+During a task, you may notice a clear signal about how Jeffrey wants things done.
+**Report these explicitly** via `PATCH /preferences` — do not assume the system
+will infer them. Only report signals you actually observed; do not invent signals.
+
+**Report a signal when Jeffrey:**
+- Corrects how you did something (tone, format, level of detail, scope)
+- Explicitly states a working preference ("don't ask me to confirm X", "always give options")
+- Repeats a request for the same style across multiple tasks (pattern = signal)
+- Approves or rejects a format/approach with a clear statement
+
+**Do not report:**
+- One-off task-specific instructions (not a preference, just this task)
+- Ambiguous signals you are not confident about
+
+**How to report:**
+
+```powershell
+$apiBase = "http://localhost:5000"
+$apiKey  = Get-Content "$env:USERPROFILE\.daeanne\secrets\dispatcher-api-key.txt" -Raw | ForEach-Object Trim
+
+$updates = @(
+    @{ category = "communication"; key = "preferredLength";  value = "bullet summary, no prose" },
+    @{ category = "workingStyle";  key = "decisionStyle";    value = "give 2 options max, recommend one" }
+) | ConvertTo-Json
+
+Invoke-RestMethod `
+    -Method Patch `
+    -Uri "$apiBase/preferences" `
+    -Headers @{ "X-Api-Key" = $apiKey; "Content-Type" = "application/json" } `
+    -Body $updates
+```
+
+**Supported categories:** `communication`, `workingStyle`
+
+**Common keys — communication:**
+- `preferredLength` — summary vs. detail default
+- `format` — markdown bullets, prose, tables, etc.
+- `tone` — direct, formal, casual, etc.
+
+**Common keys — workingStyle:**
+- `decisionStyle` — how to present options
+- `confirmationPreference` — when to ask before acting
+- `escalationThreshold` — when to escalate vs. proceed
+
+If you observe a preference that doesn't fit existing keys, introduce a new key —
+keep key names camelCase and descriptive. The dispatcher stores whatever you send.
+
 ---
 
 ## Working Memory

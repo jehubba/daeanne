@@ -182,7 +182,6 @@ public static class TaskEndpoints
         DispatcherDbContext db,
         Channel<Guid> queue,
         IOptions<DispatchConfig> dispatchConfig,
-        PreferenceMemoryService preferenceMemory,
         ILogger<Program> logger,
         CancellationToken ct)
     {
@@ -246,10 +245,6 @@ public static class TaskEndpoints
         task.AgentReported = true;   // Daeanne explicitly called this endpoint
 
         await db.SaveChangesAsync(ct);
-
-        // Update preference memory from completed task (Daeanne's signal is authoritative)
-        try { preferenceMemory.UpdateFromTaskClose(task); }
-        catch (Exception ex) { logger.LogWarning(ex, "Preference update failed for task {Id}; non-fatal.", id); }
 
         // If this is a sub-task, notify the parent
         if (task.ParentTaskId.HasValue)
