@@ -21,11 +21,25 @@ builder.WebHost.UseUrls($"http://127.0.0.1:{httpPort}");
 
 var app = builder.Build();
 
-app.MapGet("/health", () => Results.Ok(new
+app.MapGet("/health", () =>
 {
-    status    = "healthy",
-    service   = "bridge",
-    timestamp = DateTime.UtcNow
-}));
+    if (!BridgeHealth.GraphTokenOk)
+        return Results.Json(new
+        {
+            status    = "degraded",
+            service   = "bridge",
+            graphToken = "invalid",
+            error     = BridgeHealth.GraphTokenError,
+            timestamp = DateTime.UtcNow
+        }, statusCode: 503);
+
+    return Results.Ok(new
+    {
+        status     = "healthy",
+        service    = "bridge",
+        graphToken = "ok",
+        timestamp  = DateTime.UtcNow
+    });
+});
 
 app.Run();

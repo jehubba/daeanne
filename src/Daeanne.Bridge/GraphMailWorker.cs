@@ -69,6 +69,30 @@ public class GraphMailWorker(
         logger.LogInformation("GraphMailWorker starting. Inbound every {In}s, outbound every {Out}s for {Mail}",
             inboundPollSeconds, outboundPollSeconds, mailAddress);
 
+        // ── Eager token validation before entering poll loops ─────────────────
+        // Catches stale tokens from disk (e.g. Bridge restarted hours after last write)
+        // before any mail work begins, rather than failing silently on the first poll.
+        try
+        {
+            logger.LogInformation("GraphMailWorker: validating Graph token on startup...");
+            await RefreshAccessTokenAsync(clientId, tokenState, stoppingToken);
+            BridgeHealth.GraphTokenOk          = true;
+            BridgeHealth.GraphTokenError       = null;
+            BridgeHealth.GraphTokenLastChecked = DateTime.UtcNow;
+            logger.LogInformation("GraphMailWorker: startup token refresh succeeded.");
+        }
+        catch (Exception ex)
+        {
+            BridgeHealth.GraphTokenOk    = false;
+            BridgeHealth.GraphTokenError = ex.Message;
+            BridgeHealth.GraphTokenLastChecked = DateTime.UtcNow;
+            logger.LogError(ex,
+                "GraphMailWorker: startup token refresh FAILED — " +
+                "outbound mail blocked until token is restored. " +
+                "Bridge health endpoint will report degraded.");
+            // Don't abort — the loops keep running and will recover when the token becomes valid.
+        }
+
         var blockedSenders = new BlockedSendersStore(reloadEveryNPolls: 10);
 
         await Task.WhenAll(
@@ -364,7 +388,13 @@ public class GraphMailWorker(
         var root = doc.RootElement;
 
         if (root.TryGetProperty("error", out var err))
-            throw new InvalidOperationException($"Token error: {err.GetString()}");
+        {
+            var msg = err.GetString() ?? "unknown token error";
+            BridgeHealth.GraphTokenOk          = false;
+            BridgeHealth.GraphTokenError       = msg;
+            BridgeHealth.GraphTokenLastChecked = DateTime.UtcNow;
+            throw new InvalidOperationException($"Token error: {msg}");
+        }
 
         if (root.TryGetProperty("refresh_token", out var newRt))
         {
@@ -376,6 +406,11 @@ public class GraphMailWorker(
                 SaveTokenState(state);
             }
         }
+
+        // Mark token healthy on every successful refresh
+        BridgeHealth.GraphTokenOk          = true;
+        BridgeHealth.GraphTokenError       = null;
+        BridgeHealth.GraphTokenLastChecked = DateTime.UtcNow;
 
         return root.GetProperty("access_token").GetString()!;
     }
