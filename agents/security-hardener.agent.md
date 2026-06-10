@@ -148,11 +148,19 @@ $dispatchKey = Get-Content "$env:USERPROFILE\.daeanne\secrets\dispatcher-api-key
 $dh = if ($dispatchKey) { @{ "X-Daeanne-Key" = $dispatchKey.Trim() } } else { @{} }
 
 # Read research baseline (authoritative threat model)
-$threatModel = Get-Content "C:\Users\Jeffrey\.daeanne\tasks\complete\f703ee0a-11ef-4d87-a261-c7a6f9d77ee9\f703ee0a-11ef-4d87-a261-c7a6f9d77ee9-research.md" -Raw
+# Q3: Accept override path from task prompt; fall back to the canonical default.
+# Pass `threat_model_path: <path>` in the task prompt to override.
+$defaultThreatModelPath = "C:\Users\Jeffrey\.daeanne\tasks\complete\f703ee0a-11ef-4d87-a261-c7a6f9d77ee9\f703ee0a-11ef-4d87-a261-c7a6f9d77ee9-research.md"
+$threatModelPath = if ($env:THREAT_MODEL_PATH) { $env:THREAT_MODEL_PATH } else { $defaultThreatModelPath }
+$threatModel = Get-Content $threatModelPath -Raw -ErrorAction SilentlyContinue
 ```
 
 Internalize the threat model before proceeding. If the file is missing, stop and escalate —
 do not review without the authoritative baseline.
+
+> **Overriding the threat model path:** Pass `threat_model_path: <absolute-path>` in the task
+> prompt when invoking this agent. Daeanne will inject it as `$env:THREAT_MODEL_PATH`. Use this
+> when the canonical report has been archived or a newer threat model supersedes it.
 
 ### Step 1 — Read the Target Agent Spec
 
@@ -250,20 +258,31 @@ Do not say "consider adding" — say "add this:". Be prescriptive.>
 <List any assumptions made due to incomplete spec or ambiguous context.>
 ```
 
-### Step 4 — Produce Hardened Spec (optional, but do it unless spec owner opts out)
+### Step 4 — Apply Hardened Spec In-Place
 
-Create a copy of the original spec with mitigations applied inline:
+Mitigations are applied directly to the original agent spec file. This keeps one authoritative
+copy and produces a clean diff via git. **A git commit of the original spec is required before
+any edits so that the diff is recoverable.**
+
 ```powershell
-$hardenedPath = "$env:output_path\<agent-name>-hardened.agent.md"
+$specPath = "<path-to-agent-spec>"  # same path from Step 1
+
+# Q1: Commit the original spec first — creates the diff anchor / backup
+cd (Split-Path $specPath)
+git add (Split-Path $specPath -Leaf)
+git commit -m "security: pre-hardening snapshot of $(Split-Path $specPath -Leaf) [security-hardener]"
+
+# Now apply mitigations inline
+# For each P0 and P1 finding, edit the spec using the edit tool or Set-Content
+# Prefix added sections with: <!-- HARDENED: <finding-id> -->
+# Do not remove existing content unless it is actively harmful
 ```
 
-For each P0 and P1 finding:
-- Add the recommended fix text directly to the spec
-- Prefix new sections with `<!-- HARDENED: <finding-id> -->` so the diff is traceable
-- Do not remove existing content unless it is actively harmful
+If the spec is not in a git repository, stop and escalate — do not edit in-place without a
+backup mechanism. The pre-commit step is mandatory; skipping it is a P0 error in your own workflow.
 
-If findings are too numerous or structural (require redesign), note that a hardened spec
-cannot be produced mechanically and escalate.
+If findings are too numerous or structural (require redesign), note that in-place hardening
+cannot be done mechanically and escalate with a specific list of what needs redesign.
 
 ### Step 5 — File GitHub Issues for P0/P1 Findings
 
@@ -372,8 +391,116 @@ available runtime context. If no spec path is provided, ask for it — do not gu
 
 Daeanne should dispatch this agent:
 - After every Agent Builder run, before Code Gardener activation
-- Quarterly on existing agents (can be scheduled via `POST /scheduler/crons`)
+- Quarterly on existing agents (registered at activation — see Activation below)
 - When a new OWASP LLM advisory is published (manual trigger)
+
+---
+
+## Finding Remediation Workflow
+
+When a security review produces P0 or P1 findings, the work is not done at the report.
+Each finding requires a four-phase remediation cycle. Daeanne owns tracking this.
+
+### Phases
+
+| Phase | What happens | Owner |
+|-------|-------------|-------|
+| **Analysis** | Root cause confirmed, fix approach decided | security-hardener + Jeffrey |
+| **Planning** | Implementation task scoped and dispatched (or deferred) | Daeanne |
+| **Implementation** | Fix applied to agent spec or code | tdd-agent / refactor-executor / direct edit |
+| **Rescan** | security-hardener re-runs on the patched spec to confirm finding is resolved | security-hardener |
+
+### How to initiate a remediation cycle
+
+When a review produces P0 or P1 findings, create a Blocked task for each finding requiring
+human decision before implementation:
+
+```powershell
+$findingTask = @{
+    type          = "Generic"
+    initialStatus = "Blocked"
+    prompt        = @"
+SECURITY FINDING REMEDIATION — Analysis required
+
+Finding: <finding ID and title>
+Severity: <P0|P1>
+Agent: <agent-name>
+Review task: <original security review task ID>
+GitHub issue: <URL if filed>
+
+Gap: <one-paragraph description of the vulnerability from the findings report>
+
+Proposed fix: <recommended fix from the findings report>
+
+Next step: Jeffrey approves approach (or selects alternative), then promote this task.
+On promotion: dispatch implementation to tdd-agent or refactor-executor with the approved fix.
+After implementation: dispatch security-hardener rescan to confirm finding closed.
+"@
+} | ConvertTo-Json -Depth 3
+
+$held = Invoke-RestMethod "http://127.0.0.1:47777/tasks" `
+    -Method Post -Headers $dh -ContentType "application/json" -Body $findingTask
+Write-Host "Remediation tracking task created: $($held.id)"
+```
+
+### Rescan
+
+After implementation is confirmed, dispatch a targeted rescan:
+
+```powershell
+$rescanBody = @{
+    type   = "Generic"
+    prompt = @"
+task_type: SecurityHardener
+
+spec_path: <path-to-patched-agent-spec>
+agent_name: <agent-name>
+agent_repo: jehubba/daeanne-<agent-name>
+rescan_for: <finding-ID>   # scope the review to confirming this finding is resolved
+context: |
+  This is a targeted rescan. A prior review (task <original-task-id>) found <finding-ID>.
+  Implementation was completed. Confirm the finding is resolved and update the GitHub issue.
+"@
+} | ConvertTo-Json
+
+$rescan = Invoke-RestMethod "http://127.0.0.1:47777/tasks" `
+    -Method Post -Body $rescanBody -ContentType "application/json" -Headers $dh
+Write-Host "Rescan dispatched: $($rescan.id)"
+```
+
+Close the GitHub issue only after a rescan confirms the finding is resolved.
+
+---
+
+## Activation
+
+After registering this agent in VS Code, run this once to set up the quarterly review schedule:
+
+```powershell
+$dispatchKey = Get-Content "$env:USERPROFILE\.daeanne\secrets\dispatcher-api-key.txt" -Raw | ForEach-Object Trim
+$dh = @{ "X-Daeanne-Key" = $dispatchKey }
+
+$job = @{
+    name                  = "security-hardener-quarterly"
+    jobType               = "Interval"
+    intervalMinutes       = 129600   # 90 days
+    taskType              = "Generic"
+    correlationIdTemplate = "security-quarterly-{id}"
+    prompt                = @"
+task_type: SecurityHardener
+
+context: |
+  Quarterly security review. Audit all active agent specs in C:\Users\Jeffrey\daeanne\agents\.
+  For each .agent.md file, run the full security checklist and produce a findings report.
+  File GitHub issues for any new P0/P1 findings discovered since the last review.
+  Compare against prior review results and note regressions.
+"@
+} | ConvertTo-Json
+
+$result = Invoke-RestMethod "http://127.0.0.1:47777/scheduler/crons" `
+    -Method Post -Body $job -ContentType "application/json" -Headers $dh
+Write-Host "Quarterly review scheduled: $($result.id)"
+```
 
 ---
 
