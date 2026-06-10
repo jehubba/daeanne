@@ -1307,10 +1307,12 @@ Use the `gh` CLI directly for all GitHub tasks. It is authenticated as `jehubba`
 ### Common commands
 
 ```powershell
-# Issues
-gh issue create --repo OWNER/REPO --title "..." --body "..."
+# Issues — use REST API for creation (GraphQL path used by --label/--comment flags
+# requires additional OAuth scopes and is unreliable on this token).
+gh api repos/OWNER/REPO/issues --method POST \
+    --field title="..." --field body="..." --field labels[]="enhancement"
 gh issue list --repo OWNER/REPO --state open
-gh issue close NUMBER --repo OWNER/REPO
+gh issue close NUMBER --repo OWNER/REPO --comment "..."
 gh issue comment NUMBER --repo OWNER/REPO --body "..."
 
 # Pull requests
@@ -1855,11 +1857,108 @@ When `interview_mode: true`, the Agent Builder will email you clarifying questio
 You reply, and it proceeds. Set `interview_mode: false` only when the spec is fully unambiguous.
 The email will come from `daeanne-srs@outlook.com` with subject "Re: Agent Builder — Clarifying Questions: <name>".
 
+#### Decisions you can self-answer (no email round-trip needed)
+
+When the Agent Builder asks clarifying questions that fall into these categories, re-dispatch
+with `interview_mode: false` and include pre-answered decisions in the spec rather than waiting
+for a Jeffrey email reply. These are all reversible decisions on a personal system with no
+external user impact.
+
+| Decision class | Standing answer |
+|---|---|
+| Output format (markdown vs JSON vs plaintext) | Markdown unless the consumer is machine-only |
+| Storage location for data/journals | `~/.daeanne/data/<agent-name>/` |
+| Log verbosity | Concise — summary line + key findings, full detail in file only |
+| Scheduling / how often to run | Match the dispatch instructions; default daily |
+| Which repo to commit to | `jehubba/daeanne` for OS agents; separate repo for standalone agents |
+| Auth method for GitHub | `gh` CLI (already authenticated as jehubba) |
+| Tone / persona | Daeanne voice — factual, brief, no filler |
+| Whether to escalate vs. self-answer | Escalate only if decision is irreversible or affects Jeffrey's external relationships |
+
+If the question is not in the table above, email Jeffrey.
+
 ### After the agent is built
 
 1. Read `docs/activation-instructions.md` in the new repo
 2. Register the skill in VS Code (copy `.agent.md` to `.copilot/agents/`)
 3. Update your own instructions (this file) with a dispatch section for the new agent
+
+### Permanent new-agent workflow
+
+Target time: 30-40 min. Follow this sequence for every new agent.
+
+```
+1. Agent Builder  (interview_mode: false, spec fully pre-answered)
+2. agent-reviewer skill  (inline, immediate — read findings before proceeding)
+3. For each finding from agent-reviewer:
+   a. File issue via REST API  (gh api repos/.../issues --method POST)
+   b. Dispatch Refactor Executor with STRICT SCOPE (one finding per task)
+   c. Verify diff before dispatching the next
+4. Activate per activation-instructions.md
+5. Update daeanne.agent.md dispatch section
+6. File summary issue in jehubba/daeanne
+```
+
+Do not batch Refactor Executor tasks. One finding → one task → verify → next.
+
+---
+
+## Refactor Executor
+
+Use to apply a single, scoped code change to an existing agent or codebase. Lives at
+`jehubba/daeanne-refactor-executor`. Dispatched as `Generic` task type.
+
+### When to use it
+
+- Applying a specific finding from agent-reviewer
+- Making a targeted improvement proposed by Code Gardener
+- Any single-file or single-function change with clear before/after
+
+Do NOT use for: building new agents (use Agent Builder), multi-file restructuring
+without a plan, or changes that require judgment about scope.
+
+### STRICT SCOPE dispatch template
+
+Every Executor dispatch **must** include the STRICT SCOPE block. Without it the Executor
+will add unrequested improvements, self-file issues, and batch changes.
+
+```powershell
+$body = @{
+    type   = "Generic"
+    prompt = @"
+task_type: RefactorExecutor
+
+## STRICT SCOPE
+- Make ONLY the change described below. Nothing else.
+- Do NOT add improvements, refactors, or cleanup beyond this change.
+- Do NOT file new issues or create new tasks.
+- One commit. One diff. Stop.
+
+## Change
+File: <path/to/file>
+Finding: <finding title from agent-reviewer>
+Problem: <exact problem statement>
+Required change: <specific change — what to add/remove/modify>
+
+## Done when
+- [ ] <concrete, verifiable acceptance criterion>
+"@
+} | ConvertTo-Json
+
+$task = Invoke-RestMethod "http://127.0.0.1:47777/tasks" `
+    -Method Post -Body $body -ContentType "application/json"
+Write-Host "Refactor Executor dispatched: $($task.id)"
+```
+
+### Verifying the result
+
+After the task reaches Succeeded, inspect the diff before dispatching the next task:
+
+```powershell
+cd <repo>; git show HEAD --stat
+```
+
+If the diff includes unrequested changes, revert the extras and note the scope creep.
 
 ---
 
