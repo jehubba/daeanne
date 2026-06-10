@@ -74,27 +74,39 @@ public class DispatchWorker(
 
             if (result.Succeeded)
             {
-                // Process exited cleanly — do NOT mark completion. That is Daeanne's responsibility.
-                // She will call PATCH /tasks/{id}/status → Succeeded when her work is truly done.
-                // The dir stays in active/ until the TaskCleanupWorker moves it after her signal.
-                // However, persist stdout as fallback ResultJson now so the Note column is populated
-                // even if the agent's PATCH omits resultJson.
+                // Process exited cleanly. Persist stdout as fallback ResultJson (for the Note column).
+                // If the agent already called PATCH to self-report, it will have set a terminal status —
+                // we leave it alone. If it's still Running (agent forgot to PATCH), auto-finalize it
+                // as Succeeded so the task doesn't stay stuck forever.
                 using var scope = scopeFactory.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<DispatcherDbContext>();
                 var t = await db.Tasks.FindAsync([taskId], ct);
+
                 if (t?.Status == AgentTaskStatus.Awaiting)
                 {
                     logger.LogInformation("Task {TaskId} process exited but status is Awaiting — leaving suspended.", taskId);
                 }
-                else
+                else if (t is not null && t.IsTerminal())
                 {
-                    if (t is not null && t.ResultJson is null && result.ResultJson is not null)
-                    {
+                    // Agent already called PATCH and self-reported — nothing to do.
+                    logger.LogInformation("Task {TaskId} process exited cleanly; agent already self-reported ({Status}).", taskId, t.Status);
+                }
+                else if (t is not null)
+                {
+                    // Task is still Running — agent exited without calling PATCH.
+                    // Auto-finalize as Succeeded so it doesn't stay stuck.
+                    if (t.ResultJson is null && result.ResultJson is not null)
                         t.ResultJson = result.ResultJson;
-                        t.UpdatedAt  = DateTime.UtcNow;
-                        await db.SaveChangesAsync(ct);
-                    }
-                    logger.LogInformation("Task {TaskId} process exited cleanly — awaiting Daeanne's self-report via PATCH.", taskId);
+
+                    t.Status      = AgentTaskStatus.Succeeded;
+                    t.CompletedAt = DateTime.UtcNow;
+                    t.UpdatedAt   = DateTime.UtcNow;
+                    await db.SaveChangesAsync(ct);
+
+                    logger.LogWarning(
+                        "Task {TaskId} process exited cleanly but task was still Running — " +
+                        "auto-finalized as Succeeded. Agent should call PATCH /tasks/{TaskId}/status before exit.",
+                        taskId, taskId);
                 }
             }
             else
