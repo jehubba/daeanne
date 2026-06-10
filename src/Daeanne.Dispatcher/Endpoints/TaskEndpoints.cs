@@ -23,6 +23,7 @@ public static class TaskEndpoints
         app.MapPost("/tasks",                        CreateTask);
         app.MapPost("/tasks/{id:guid}/result",       PostResult);
         app.MapPatch("/tasks/{id:guid}/status",      PostResult);   // alias — agents use PATCH
+        app.MapPost("/tasks/{id:guid}/requeue",      RequeueTask);
         app.MapPost("/tasks/{id:guid}/resume",       ResumeTask);
         app.MapPost("/tasks/{id:guid}/callback/ack", CallbackAck);
         app.MapPost("/tasks/{id:guid}/callback",     Callback);
@@ -62,6 +63,27 @@ public static class TaskEndpoints
     {
         var task = await db.Tasks.FindAsync(id);
         return task is null ? Results.NotFound() : Results.Ok(task);
+    }
+
+    /// <summary>
+    /// Force-requeue a Pending task that was not caught by RehydrateAsync on startup.
+    /// Safe to call multiple times — idempotent if the task is already dispatching.
+    /// </summary>
+    private static async Task<IResult> RequeueTask(
+        Guid id,
+        DispatcherDbContext db,
+        Channel<Guid> queue,
+        ILogger<Program> logger,
+        CancellationToken ct)
+    {
+        var task = await db.Tasks.FindAsync(id);
+        if (task is null) return Results.NotFound();
+        if (task.Status != AgentTaskStatus.Pending)
+            return Results.Conflict($"Task {id} is in state '{task.Status}', not Pending. Only Pending tasks can be requeued.");
+
+        await queue.Writer.WriteAsync(task.Id, ct);
+        logger.LogInformation("Task {Id} manually re-queued via /requeue.", id);
+        return Results.Accepted();
     }
 
     private static async Task<IResult> CreateTask(

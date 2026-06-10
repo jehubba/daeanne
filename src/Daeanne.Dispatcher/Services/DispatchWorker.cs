@@ -143,6 +143,9 @@ public class DispatchWorker(
             .Select(t => t.Id)
             .ToListAsync(ct);
 
+        logger.LogInformation("RehydrateAsync: found {Count} Pending tasks to re-queue: [{Ids}]",
+            pendingIds.Count, string.Join(", ", pendingIds.Select(id => id.ToString()[..8])));
+
         foreach (var id in pendingIds)
             await queue.Writer.WriteAsync(id, ct);
 
