@@ -37,24 +37,6 @@ internal class ActivityWindow : Form
     private int  _sortCol = 2;      // default: Started
     private bool _sortAsc = false;  // default: newest first
 
-    // ── Design tokens ─────────────────────────────────────────────────────────
-    private static readonly Color BgBase    = Color.FromArgb(22, 22, 26);
-    private static readonly Color BgPanel   = Color.FromArgb(30, 30, 34);
-    private static readonly Color BgHeader  = Color.FromArgb(38, 38, 44);
-    private static readonly Color BgSidebar = Color.FromArgb(26, 26, 30);
-    private static readonly Color BgDetail  = Color.FromArgb(18, 18, 20);
-    private static readonly Color Separator = Color.FromArgb(50, 50, 56);
-    private static readonly Color TextPrimary = Color.FromArgb(220, 220, 228);
-    private static readonly Color TextMuted   = Color.FromArgb(130, 130, 140);
-    private static readonly Font  FontUi     = new("Segoe UI", 9f);
-    private static readonly Font  FontSmall  = new("Segoe UI", 8f);
-    private static readonly Font  FontMono   = MakeMonoFont();
-
-    private static Font MakeMonoFont()
-    {
-        try   { return new Font("Cascadia Mono", 8.5f, FontStyle.Regular); }
-        catch { return new Font("Consolas",      8.5f, FontStyle.Regular); }
-    }
 
     // cached for the status bar painter
     private int _cntRunning, _cntPending, _cntSucceeded, _cntFailed, _cntTotal;
@@ -67,225 +49,39 @@ internal class ActivityWindow : Form
         Size            = new Size(1100, 700);
         MinimumSize     = new Size(820, 520);
         StartPosition   = FormStartPosition.CenterScreen;
-        BackColor       = BgBase;
-        ForeColor       = TextPrimary;
+        BackColor       = DashboardTheme.BgBase;
+        ForeColor       = DashboardTheme.TextPrimary;
         FormBorderStyle = FormBorderStyle.Sizable;
         ShowInTaskbar   = false;
 
-        // ── Header ────────────────────────────────────────────────────────────
-        var header = new Panel
-        {
-            Dock      = DockStyle.Top,
-            Height    = 52,
-            BackColor = BgHeader,
-            Padding   = new Padding(16, 0, 12, 0)
-        };
-        header.Paint += (_, e) =>
-        {
-            using var pen = new Pen(Separator);
-            e.Graphics.DrawLine(pen, 0, header.Height - 1, header.Width, header.Height - 1);
-        };
+        var layout = new DashboardLayout();
 
-        _dispatcherDot   = MakeDot();
-        _dispatcherLabel = MakeServiceLabel("Dispatcher  ·  checking…");
-        _bridgeDot       = MakeDot();
-        _bridgeLabel     = MakeServiceLabel("Bridge  ·  checking…");
-        _daeanneD        = MakeDot();
-        _daeanneLabel    = MakeServiceLabel("Daeanne  ·  checking…");
+        // Assign named controls from layout
+        _dispatcherDot   = layout.DispatcherDot;
+        _dispatcherLabel = layout.DispatcherLabel;
+        _bridgeDot       = layout.BridgeDot;
+        _bridgeLabel     = layout.BridgeLabel;
+        _daeanneD        = layout.DaeanneD;
+        _daeanneLabel    = layout.DaeanneLabel;
+        _statRunning     = layout.StatRunning;
+        _statToday       = layout.StatToday;
+        _statSuccessRate = layout.StatSuccessRate;
+        _statusBar       = layout.StatusBar;
+        _cronList        = layout.CronList;
+        _filterBox       = layout.FilterBox;
+        _taskList        = layout.TaskList;
+        _detailBox       = layout.DetailBox;
+        _lastUpdated     = layout.LastUpdated;
 
-        var refreshBtn = new Button
-        {
-            Text      = "↻  Refresh",
-            Dock      = DockStyle.Right,
-            Width     = 90,
-            FlatStyle = FlatStyle.Flat,
-            BackColor = Color.FromArgb(48, 48, 56),
-            ForeColor = Color.FromArgb(200, 200, 210),
-            Font      = FontUi,
-            Cursor    = Cursors.Hand
-        };
-        refreshBtn.FlatAppearance.BorderSize = 0;
-        refreshBtn.Click += async (_, _) => await RefreshAsync();
+        // Wire events that capture form state
+        layout.RefreshButton.Click += async (_, _) => await RefreshAsync();
 
-        var headerFlow = new FlowLayoutPanel
-        {
-            Dock          = DockStyle.Fill,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents  = false,
-        };
-        headerFlow.Controls.Add(_dispatcherDot);
-        headerFlow.Controls.Add(_dispatcherLabel);
-        headerFlow.Controls.Add(MakeSep());
-        headerFlow.Controls.Add(_bridgeDot);
-        headerFlow.Controls.Add(_bridgeLabel);
-        headerFlow.Controls.Add(MakeSep());
-        headerFlow.Controls.Add(_daeanneD);
-        headerFlow.Controls.Add(_daeanneLabel);
-        header.Controls.Add(refreshBtn);
-        header.Controls.Add(headerFlow);
+        _statusBar.Paint += (_, e) =>
+            DashboardPainter.PaintStatusBar(e, _statusBar.Width, _statusBar.Height,
+                _cntRunning, _cntPending, _cntSucceeded, _cntFailed, _cntTotal);
 
-        // ── STATS STRIP (horizontal: system stats | schedule) ─────────────────
-        var statsStrip = new Panel
-        {
-            Dock      = DockStyle.Top,
-            Height    = 120,
-            BackColor = BgSidebar
-        };
-        statsStrip.Paint += (_, e) =>
-        {
-            using var pen = new Pen(Separator);
-            e.Graphics.DrawLine(pen, 0, statsStrip.Height - 1, statsStrip.Width, statsStrip.Height - 1);
-        };
-
-        var stripLayout = new TableLayoutPanel
-        {
-            Dock        = DockStyle.Fill,
-            ColumnCount = 2,
-            RowCount    = 1,
-            BackColor   = Color.Transparent
-        };
-        stripLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 270f));
-        stripLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-        stripLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
-        statsStrip.Controls.Add(stripLayout);
-
-        // ── Left cell: system stats ───────────────────────────────────────────
-        var sysPanel = new Panel { Dock = DockStyle.Fill, BackColor = BgSidebar, Padding = new Padding(14, 8, 12, 6) };
-        _statRunning     = MakeStatLabel("—");
-        _statToday       = MakeStatLabel("—");
-        _statSuccessRate = MakeStatLabel("—");
-        _statusBar = new Panel
-        {
-            Height    = 7,
-            Dock      = DockStyle.Bottom,
-            BackColor = Color.FromArgb(40, 40, 46)
-        };
-        _statusBar.Paint += PaintStatusBar;
-
-        var statGrid = new TableLayoutPanel
-        {
-            Dock        = DockStyle.Fill,
-            ColumnCount = 3,
-            RowCount    = 2,
-            BackColor   = Color.Transparent,
-            Margin      = new Padding(0)
-        };
-        statGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33f));
-        statGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33f));
-        statGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34f));
-        statGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 18f));
-        statGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
-        statGrid.Controls.Add(MakeStatCaption("Running"),  0, 0);
-        statGrid.Controls.Add(MakeStatCaption("Today"),    1, 0);
-        statGrid.Controls.Add(MakeStatCaption("7-day"),    2, 0);
-        statGrid.Controls.Add(_statRunning,                0, 1);
-        statGrid.Controls.Add(_statToday,                  1, 1);
-        statGrid.Controls.Add(_statSuccessRate,            2, 1);
-
-        var sysHeader = new Panel { Dock = DockStyle.Top, Height = 22, BackColor = Color.Transparent };
-        sysHeader.Controls.Add(MakeSectionHeader("SYSTEM"));
-        sysPanel.Controls.Add(_statusBar);
-        sysPanel.Controls.Add(statGrid);
-        sysPanel.Controls.Add(sysHeader);
-        stripLayout.Controls.Add(sysPanel, 0, 0);
-
-        // ── Right cell: schedule ──────────────────────────────────────────────
-        var schedPanel = new Panel { Dock = DockStyle.Fill, BackColor = BgSidebar, Padding = new Padding(12, 8, 14, 6) };
-
-        _cronList = new ListView
-        {
-            View          = View.Details,
-            FullRowSelect = true,
-            GridLines     = false,
-            OwnerDraw     = true,
-            BackColor     = BgSidebar,
-            ForeColor     = TextPrimary,
-            BorderStyle   = BorderStyle.None,
-            Font          = FontSmall,
-            Dock          = DockStyle.Fill
-        };
-        _cronList.Columns.Add("",        22);   // active dot
-        _cronList.Columns.Add("Name",   200);
-        _cronList.Columns.Add("Next",    90);
-        _cronList.Columns.Add("Type",   160);
-
-        _cronList.DrawColumnHeader += (_, e) =>
-        {
-            using var bg = new SolidBrush(Color.FromArgb(36, 36, 42));
-            e.Graphics.FillRectangle(bg, e.Bounds);
-            TextRenderer.DrawText(e.Graphics, e.Header?.Text ?? "", FontSmall,
-                Rectangle.Inflate(e.Bounds, -2, 0),
-                TextMuted, TextFormatFlags.VerticalCenter | TextFormatFlags.Left);
-        };
-        _cronList.DrawItem    += (_, e) => { e.DrawDefault = false; };
-        _cronList.DrawSubItem += DrawCronSubItem;
-
-        var schedHeader = new Panel { Dock = DockStyle.Top, Height = 22, BackColor = Color.Transparent };
-        schedHeader.Controls.Add(MakeSectionHeader("SCHEDULE"));
-        schedPanel.Controls.Add(_cronList);
-        schedPanel.Controls.Add(schedHeader);
-        stripLayout.Controls.Add(schedPanel, 1, 0);
-
-        // ── FILTER BAR ────────────────────────────────────────────────────────
-        var filterBar = new Panel
-        {
-            Dock      = DockStyle.Top,
-            Height    = 34,
-            BackColor = BgHeader,
-            Padding   = new Padding(10, 6, 10, 6)
-        };
-        filterBar.Paint += (_, e) =>
-        {
-            using var pen = new Pen(Separator);
-            e.Graphics.DrawLine(pen, 0, filterBar.Height - 1, filterBar.Width, filterBar.Height - 1);
-        };
-        _filterBox = new TextBox
-        {
-            Dock        = DockStyle.Right,
-            Width       = 200,
-            BackColor   = Color.FromArgb(42, 42, 50),
-            ForeColor   = TextPrimary,
-            BorderStyle = BorderStyle.FixedSingle,
-            Font        = FontUi,
-            PlaceholderText = "filter…"
-        };
         _filterBox.TextChanged += (_, _) => RepopulateTaskList();
-        filterBar.Controls.Add(_filterBox);
 
-        // ── MAIN PANEL (task list + detail) ───────────────────────────────────
-        var mainSplit = new SplitContainer
-        {
-            Dock          = DockStyle.Fill,
-            Orientation   = Orientation.Horizontal,
-            SplitterWidth = 1,
-            BackColor     = Separator,
-            Panel2MinSize = 70
-        };
-
-        // Task list
-        _taskList = new ListView
-        {
-            Dock          = DockStyle.Fill,
-            View          = View.Details,
-            FullRowSelect = true,
-            GridLines     = false,
-            OwnerDraw     = true,
-            BackColor     = BgPanel,
-            ForeColor     = TextPrimary,
-            BorderStyle   = BorderStyle.None,
-            Font          = FontUi
-        };
-        _taskList.Columns.Add("Type",    130);
-        _taskList.Columns.Add("Status",   96);
-        _taskList.Columns.Add("Started", 130);
-        _taskList.Columns.Add("Duration", 76);
-        _taskList.Columns.Add("Note",    400);   // fills on resize
-
-        _taskList.DrawColumnHeader += DrawTaskColumnHeader;
-        _taskList.DrawItem         += (_, e) => { e.DrawDefault = false; };
-        _taskList.DrawSubItem      += DrawTaskSubItem;
-
-        // Note column stretches to fill available width
         _taskList.Resize += (_, _) =>
         {
             int used = _taskList.Columns.Cast<ColumnHeader>().Take(4).Sum(c => c.Width);
@@ -293,7 +89,6 @@ internal class ActivityWindow : Form
             if (fill > 80) _taskList.Columns[4].Width = fill;
         };
 
-        // Column-header click → sort
         _taskList.ColumnClick += (_, e) =>
         {
             if (_sortCol == e.Column) _sortAsc = !_sortAsc;
@@ -301,9 +96,6 @@ internal class ActivityWindow : Form
             RepopulateTaskList();
         };
 
-        AttachTaskContextMenu();
-
-        // Tooltip on Note column
         var errorTip = new ToolTip { AutoPopDelay = 10000, InitialDelay = 400 };
         _taskList.MouseMove += (_, me) =>
         {
@@ -316,195 +108,26 @@ internal class ActivityWindow : Form
 
         _taskList.DoubleClick          += OnOpenWorkDir;
         _taskList.SelectedIndexChanged += OnTaskSelected;
-        mainSplit.Panel1.Controls.Add(_taskList);
 
-        // Detail panel
-        _detailBox = new TextBox
-        {
-            Dock        = DockStyle.Fill,
-            Multiline   = true,
-            ReadOnly    = true,
-            ScrollBars  = ScrollBars.Vertical,
-            BackColor   = BgDetail,
-            ForeColor   = Color.FromArgb(190, 190, 200),
-            BorderStyle = BorderStyle.None,
-            Font        = FontUi,
-            Padding     = new Padding(8)
-        };
-        _lastUpdated = new Label
-        {
-            Dock      = DockStyle.Bottom,
-            Height    = 20,
-            Text      = "",
-            ForeColor = TextMuted,
-            Font      = FontSmall,
-            TextAlign = ContentAlignment.MiddleRight,
-            Padding   = new Padding(0, 0, 8, 0),
-            BackColor = BgDetail
-        };
-        mainSplit.Panel2.Controls.Add(_detailBox);
-        mainSplit.Panel2.Controls.Add(_lastUpdated);
+        AttachTaskContextMenu();
 
-        // Dock order matters: Fill last, then Top panels stack top-down
-        Controls.Add(mainSplit);
-        Controls.Add(filterBar);
-        Controls.Add(statsStrip);
-        Controls.Add(header);
+        // Dock order: Fill last, Top panels stack top-down
+        Controls.Add(layout.MainSplit);
+        Controls.Add(layout.FilterBar);
+        Controls.Add(layout.StatsStrip);
+        Controls.Add(layout.Header);
 
         Shown += (_, _) =>
         {
             BeginInvoke(() =>
             {
-                try { mainSplit.SplitterDistance = Math.Max(25, ClientSize.Height - 200); } catch { }
+                try { layout.MainSplit.SplitterDistance = Math.Max(25, ClientSize.Height - 200); } catch { }
                 _ = RefreshAsync();
             });
         };
     }
 
-    // ── Paint helpers ─────────────────────────────────────────────────────────
-
-    private void PaintStatusBar(object? sender, PaintEventArgs e)
-    {
-        if (_cntTotal == 0) return;
-        var g = e.Graphics;
-        var w = _statusBar.Width;
-        var h = _statusBar.Height;
-
-        (int count, Color color)[] segments =
-        [
-            (_cntRunning,   Color.FromArgb(80,  160, 240)),
-            (_cntPending,   Color.FromArgb(200, 160,  60)),
-            (_cntSucceeded, Color.FromArgb(70,  200,  90)),
-            (_cntFailed,    Color.FromArgb(220,  80,  70))
-        ];
-
-        int x = 0;
-        foreach (var (count, color) in segments)
-        {
-            if (count == 0) continue;
-            int segW = (int)Math.Round((double)count / _cntTotal * w);
-            using var brush = new SolidBrush(color);
-            g.FillRectangle(brush, x, 0, segW, h);
-            x += segW;
-        }
-    }
-
-    private static void DrawTaskColumnHeader(object? sender, DrawListViewColumnHeaderEventArgs e)
-    {
-        using var bg = new SolidBrush(Color.FromArgb(40, 40, 46));
-        e.Graphics.FillRectangle(bg, e.Bounds);
-        using var pen = new Pen(Separator);
-        e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
-        TextRenderer.DrawText(e.Graphics, e.Header?.Text ?? "", new Font("Segoe UI", 8.5f),
-            Rectangle.Inflate(e.Bounds, -4, 0),
-            Color.FromArgb(170, 170, 180),
-            TextFormatFlags.VerticalCenter | TextFormatFlags.Left);
-    }
-
-    private static void DrawTaskSubItem(object? sender, DrawListViewSubItemEventArgs e)
-    {
-        bool selected = e.Item.Selected;
-        bool alt      = e.Item.Index % 2 == 1;
-        var bg = selected
-            ? Color.FromArgb(38, 82, 148)
-            : alt ? Color.FromArgb(34, 34, 40) : BgPanel;
-        using var bgBrush = new SolidBrush(bg);
-        e.Graphics.FillRectangle(bgBrush, e.Bounds);
-
-        var fg = selected ? Color.White
-            : (e.SubItem?.ForeColor is { } c && c != Color.Empty && c != e.Item?.ForeColor
-                ? c : e.Item?.ForeColor ?? TextPrimary);
-        TextRenderer.DrawText(e.Graphics, e.SubItem?.Text ?? "", new Font("Segoe UI", 9f),
-            Rectangle.Inflate(e.Bounds, -4, 0), fg,
-            TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
-    }
-
-    private void DrawCronSubItem(object? sender, DrawListViewSubItemEventArgs e)
-    {
-        bool selected = e.Item.Selected;
-        var bg = selected ? Color.FromArgb(38, 82, 148) : BgSidebar;
-        using var bgBrush = new SolidBrush(bg);
-        e.Graphics.FillRectangle(bgBrush, e.Bounds);
-
-        if (e.ColumnIndex == 0 && e.Item?.Tag is CronJob job)
-        {
-            // Draw active dot
-            var dot = job.IsActive ? Color.FromArgb(70, 200, 90) : Color.FromArgb(130, 130, 140);
-            using var dBrush = new SolidBrush(dot);
-            var cx = e.Bounds.Left + e.Bounds.Width / 2;
-            var cy = e.Bounds.Top  + e.Bounds.Height / 2;
-            e.Graphics.FillEllipse(dBrush, cx - 4, cy - 4, 8, 8);
-            return;
-        }
-
-        var fg = selected ? Color.White : (e.SubItem?.ForeColor ?? TextPrimary);
-        TextRenderer.DrawText(e.Graphics, e.SubItem?.Text ?? "", FontSmall,
-            Rectangle.Inflate(e.Bounds, -2, 0), fg,
-            TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
-    }
-
-    // ── Section / label factories ─────────────────────────────────────────────
-
-    private static Label MakeSectionHeader(string text) => new()
-    {
-        Text      = text,
-        Dock      = DockStyle.Fill,
-        ForeColor = Color.FromArgb(100, 140, 200),
-        Font      = new Font("Segoe UI", 7.5f, FontStyle.Bold),
-        TextAlign = ContentAlignment.MiddleLeft,
-        BackColor = Color.Transparent
-    };
-
-    private static Label MakeStatCaption(string text) => new()
-    {
-        Text      = text,
-        ForeColor = TextMuted,
-        Font      = new Font("Segoe UI", 7.5f),
-        AutoSize  = false,
-        Height    = 16,
-        Dock      = DockStyle.Fill,
-        TextAlign = ContentAlignment.BottomLeft
-    };
-
-    private static Label MakeStatLabel(string text) => new()
-    {
-        Text      = text,
-        ForeColor = TextPrimary,
-        Font      = new Font("Segoe UI Semibold", 14f),
-        AutoSize  = false,
-        Height    = 28,
-        Dock      = DockStyle.Fill,
-        TextAlign = ContentAlignment.TopLeft
-    };
-
-    private static Label MakeDot() => new()
-    {
-        Width     = 10,
-        Height    = 10,
-        BackColor = Color.Gray,
-        Text      = "",
-        Margin    = new Padding(0, 21, 6, 0)
-    };
-
-    private static Label MakeServiceLabel(string text) => new()
-    {
-        Text      = text,
-        ForeColor = TextPrimary,
-        AutoSize  = true,
-        Font      = new Font("Segoe UI", 9.5f),
-        Margin    = new Padding(0, 17, 22, 0)
-    };
-
-    private static Label MakeSep() => new()
-    {
-        Text      = "│",
-        ForeColor = Color.FromArgb(60, 60, 68),
-        Width     = 18,
-        TextAlign = ContentAlignment.MiddleCenter,
-        AutoSize  = false,
-        Font      = new Font("Segoe UI", 13f),
-        Margin    = new Padding(0, 14, 0, 0)
-    };
+    // ── Section / label factories (see DashboardTheme) ───────────────────────
 
     // ── Context menu (unchanged logic, rewired to new task list) ──────────────
 
@@ -513,7 +136,7 @@ internal class ActivityWindow : Form
         var rowMenu = new ContextMenuStrip
         {
             BackColor  = Color.FromArgb(40, 40, 46),
-            ForeColor  = TextPrimary,
+            ForeColor  = DashboardTheme.TextPrimary,
             RenderMode = ToolStripRenderMode.System
         };
         rowMenu.Items.Add("View Plan",                 null, OnViewPlan);
@@ -560,7 +183,7 @@ internal class ActivityWindow : Form
         try
         {
             var json  = await _http.GetStringAsync("http://127.0.0.1:47777/tasks?take=50");
-            var tasks = JsonSerializer.Deserialize<List<TaskSummary>>(json, JsonOpts) ?? [];
+            var tasks = JsonSerializer.Deserialize<List<TaskSummary>>(json, DashboardHelpers.JsonOpts) ?? [];
             var cutoff = DateTime.UtcNow.AddHours(-1);
             return !tasks.Any(t =>
                 (t.Status == "Failed" || t.Status == "TimedOut") &&
@@ -574,7 +197,7 @@ internal class ActivityWindow : Form
         try
         {
             var json  = await _http.GetStringAsync("http://127.0.0.1:47777/tasks?take=50");
-            var tasks = JsonSerializer.Deserialize<List<TaskSummary>>(json, JsonOpts) ?? [];
+            var tasks = JsonSerializer.Deserialize<List<TaskSummary>>(json, DashboardHelpers.JsonOpts) ?? [];
 
             // Compute stats for sidebar — exclude Test tasks so pipeline probes
             // don't distort the functional success rate.
@@ -659,7 +282,7 @@ internal class ActivityWindow : Form
                 "Awaiting"                       => Color.FromArgb(200, 160, 255),
                 "Deferred" or "Blocked"
                              or "Future"         => Color.FromArgb(150, 150, 170),
-                _                                => TextPrimary
+                _                                => DashboardTheme.TextPrimary
             };
             item.SubItems[4].ForeColor = string.IsNullOrWhiteSpace(t.Error)
                 ? Color.FromArgb(150, 150, 160)
@@ -675,7 +298,7 @@ internal class ActivityWindow : Form
         try
         {
             var json = await _http.GetStringAsync("http://127.0.0.1:47777/scheduler/crons");
-            var jobs = JsonSerializer.Deserialize<List<CronJob>>(json, JsonOpts) ?? [];
+            var jobs = JsonSerializer.Deserialize<List<CronJob>>(json, DashboardHelpers.JsonOpts) ?? [];
 
             _cronList.BeginUpdate();
             _cronList.Items.Clear();
@@ -692,7 +315,7 @@ internal class ActivityWindow : Form
                     ? Color.FromArgb(255, 100, 80)       // overdue
                     : job.NextRunAt <= DateTime.UtcNow.AddHours(2)
                         ? Color.FromArgb(255, 185, 60)   // soon
-                        : TextMuted;
+                        : DashboardTheme.TextMuted;
                 item.SubItems[2].ForeColor = nextFg;
 
                 _cronList.Items.Add(item);
@@ -739,7 +362,7 @@ internal class ActivityWindow : Form
         try
         {
             var json = await _http.GetStringAsync("http://127.0.0.1:47777/tasks?type=Diagnostic&take=50");
-            var all  = JsonSerializer.Deserialize<List<TaskSummary>>(json, JsonOpts) ?? [];
+            var all  = JsonSerializer.Deserialize<List<TaskSummary>>(json, DashboardHelpers.JsonOpts) ?? [];
             var linked = all.Where(d => d.Prompt?.Contains(taskId, StringComparison.OrdinalIgnoreCase) == true).ToList();
             if (linked.Count == 0) return;
 
@@ -829,92 +452,8 @@ internal class ActivityWindow : Form
         _daeanneLabel.ForeColor = ok ? Color.FromArgb(190, 255, 190) : Color.FromArgb(255, 210, 140);
     }
 
-    private static string FormatDuration(TimeSpan ts) =>
-        ts.TotalHours >= 1  ? $"{ts.Hours}h {ts.Minutes}m" :
-        ts.TotalMinutes >= 1 ? $"{(int)ts.TotalMinutes}m {ts.Seconds}s" :
-                               $"{ts.Seconds}s";
+    private static string FormatDuration(TimeSpan ts)    => DashboardHelpers.FormatDuration(ts);
+    private static string FormatRelative(DateTime? utc)  => DashboardHelpers.FormatRelative(utc);
+    private static string? ResolveWorkDir(TaskSummary? t) => DashboardHelpers.ResolveWorkDir(t);
 
-    private static string FormatRelative(DateTime? utc)
-    {
-        if (utc is null) return "—";
-        var diff = utc.Value - DateTime.UtcNow;
-        if (diff.TotalSeconds < 0)  return "overdue";
-        if (diff.TotalMinutes < 60) return $"in {(int)diff.TotalMinutes}m";
-        if (diff.TotalHours   < 24) return $"in {(int)diff.TotalHours}h";
-        return $"in {(int)diff.TotalDays}d";
-    }
-
-    private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
-
-    // ── Work dir resolution (unchanged) ──────────────────────────────────────
-
-    private static string? ResolveWorkDir(TaskSummary? t)
-    {
-        if (t?.WorkDir is { } dir && Directory.Exists(dir)) return dir;
-        if (t?.Id is not { Length: > 0 } idStr || !Guid.TryParse(idStr, out var id)) return null;
-        var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".daeanne", "tasks");
-        return FindTaskDirLocal(baseDir, id);
-    }
-
-    private static string? FindTaskDirLocal(string baseDir, Guid id)
-    {
-        string[] candidates =
-        [
-            Path.Combine(baseDir, "active",              id.ToString()),
-            Path.Combine(baseDir, "complete",            id.ToString()),
-            Path.Combine(baseDir, "failed",              id.ToString()),
-            Path.Combine(baseDir, "complete", "archive", id.ToString()),
-            Path.Combine(baseDir, "scheduled", "active",   id.ToString()),
-            Path.Combine(baseDir, "scheduled", "complete", id.ToString()),
-            Path.Combine(baseDir, "scheduled", "failed",   id.ToString()),
-        ];
-        return candidates.FirstOrDefault(Directory.Exists);
-    }
-
-    // ── DTOs ──────────────────────────────────────────────────────────────────
-
-    private sealed class TaskSummary
-    {
-        public string?   Id            { get; set; }
-        public string?   Type          { get; set; }
-        public string?   Status        { get; set; }
-        public string?   Prompt        { get; set; }
-        public bool      AgentReported { get; set; }
-        public DateTime? StartedAt     { get; set; }
-        public DateTime? CompletedAt   { get; set; }
-        public DateTime? CreatedAt     { get; set; }
-        public string?   Error         { get; set; }
-        public string?   WorkDir       { get; set; }
-        public string?   ResultJson    { get; set; }
-
-        private string? _agentResponse;
-        public string? AgentResponse
-        {
-            get
-            {
-                if (_agentResponse is not null) return _agentResponse;
-                if (string.IsNullOrWhiteSpace(ResultJson)) return null;
-                try
-                {
-                    var r = JsonSerializer.Deserialize<JsonElement>(ResultJson);
-                    if (r.TryGetProperty("response", out var v)) _agentResponse = v.GetString();
-                }
-                catch { }
-                return _agentResponse;
-            }
-        }
-    }
-
-    private sealed class CronJob
-    {
-        public string?   Id        { get; set; }
-        public string?   Name      { get; set; }
-        public string?   JobType   { get; set; }
-        public string?   TaskType  { get; set; }
-        public string?   TimeOfDay { get; set; }
-        public string?   DayOfWeek { get; set; }
-        public DateTime? NextRunAt { get; set; }
-        public DateTime? LastFiredAt { get; set; }
-        public bool      IsActive  { get; set; }
-    }
 }
