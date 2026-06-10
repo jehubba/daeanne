@@ -10,7 +10,7 @@ namespace Daeanne.Tray;
 internal class TrayContext : ApplicationContext
 {
     private readonly NotifyIcon    _trayIcon;
-    private readonly HttpClient    _http = new() { Timeout = TimeSpan.FromSeconds(5) };
+    private readonly HttpClient    _http = CreateDispatcherClient();
     private readonly PeriodicTimer _timer = new(TimeSpan.FromSeconds(30));
 
     private ActivityWindow? _activityWindow;
@@ -181,6 +181,28 @@ internal class TrayContext : ApplicationContext
             _http.Dispose();
         }
         base.Dispose(disposing);
+    }
+
+    /// <summary>
+    /// Creates an HttpClient pre-configured with the Dispatcher API key when available.
+    /// Key is read from ~/.daeanne/secrets/dispatcher-api-key.txt — same file used by Daeanne.
+    /// </summary>
+    private static HttpClient CreateDispatcherClient()
+    {
+        var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+
+        var keyFile = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".daeanne", "secrets", "dispatcher-api-key.txt");
+
+        if (File.Exists(keyFile))
+        {
+            var key = File.ReadAllText(keyFile).Trim();
+            if (!string.IsNullOrEmpty(key))
+                client.DefaultRequestHeaders.Add("X-Daeanne-Key", key);
+        }
+
+        return client;
     }
 
     private sealed class TaskPoll
