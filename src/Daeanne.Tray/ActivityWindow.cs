@@ -119,9 +119,10 @@ internal class ActivityWindow : Form
         header.Controls.Add(headerFlow);
 
         // ── Outer split: sidebar | main ───────────────────────────────────────
-        // SplitterDistance must NOT be set in the object initializer — WinForms
-        // validates it against the actual layout width, which is 0 until the form
-        // is shown. We defer it to the Shown event below.
+        // IsSplitterFixed = true means the user can never drag it, so Panel1MinSize /
+        // Panel2MinSize are not needed and actually cause layout-time exceptions —
+        // WinForms validates SplitterDistance against them during the initial layout
+        // pass before our BeginInvoke callback fires. Leave them at default (25).
         var split = new SplitContainer
         {
             Dock            = DockStyle.Fill,
@@ -129,8 +130,6 @@ internal class ActivityWindow : Form
             SplitterWidth   = 1,
             FixedPanel      = FixedPanel.Panel1,
             BackColor       = Separator,
-            Panel1MinSize   = 200,
-            Panel2MinSize   = 400,
             IsSplitterFixed = true
         };
 
