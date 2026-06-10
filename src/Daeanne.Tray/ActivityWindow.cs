@@ -159,7 +159,7 @@ internal class ActivityWindow : Form
         {
             var t = SelectedTask();
             viewPlanItem.Enabled     = ResolveWorkDir(t) is not null;
-            troubleshootItem.Enabled = t?.Status is "Failed" or "TimedOut" or "Succeeded" or "Partial";
+            troubleshootItem.Enabled = t?.Status is "Failed" or "TimedOut" or "Succeeded" or "Partial" or "Running" or "Awaiting";
         };
 
         _taskList.ContextMenuStrip = rowMenu;
