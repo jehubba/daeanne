@@ -35,7 +35,7 @@
   ],
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/api/*", "/.auth/*", "*.{css,scss,js,png,gif,ico,jpg,svg,woff,woff2,ttf,eot,wasm,dat,dll,blat,br,gz}"]
+    "exclude": ["/api/*", "/.auth/*", "/unauthorized.html", "*.{css,scss,js,png,gif,ico,jpg,svg,woff,woff2,ttf,eot,wasm,dat,dll,blat,br,gz}"]
   },
   "responseOverrides": {
     "401": {
@@ -43,8 +43,7 @@
       "redirect": "/.auth/login/aad"
     },
     "403": {
-      "statusCode": 403,
-      "redirect": "/unauthorized.html"
+      "rewrite": "/unauthorized.html"
     }
   },
   "auth": {
