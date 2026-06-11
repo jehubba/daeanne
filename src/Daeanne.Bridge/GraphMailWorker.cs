@@ -66,8 +66,8 @@ public class GraphMailWorker(
             return;
         }
 
-        logger.LogInformation("GraphMailWorker starting. Inbound every {In}s, outbound every {Out}s for {Mail}",
-            inboundPollSeconds, outboundPollSeconds, mailAddress);
+        logger.LogInformation("GraphMailWorker starting. Inbound every {In}s, outbound every {Out}s for {Mail} → Dispatcher: {Url}",
+            inboundPollSeconds, outboundPollSeconds, mailAddress, dispatcherUrl);
 
         // ── Eager token validation before entering poll loops ─────────────────
         // Catches stale tokens from disk (e.g. Bridge restarted hours after last write)
@@ -296,6 +296,9 @@ public class GraphMailWorker(
                 ? DateTimeOffset.Parse(rd.GetString()!)
                 : DateTimeOffset.UtcNow;
 
+            logger.LogDebug("GraphMailWorker: message id={Id} from={From} subject={Subject} received={Received}",
+                graphId, from, subject, received);
+
             var bridgeMsg = new BridgeEmailMessage
             {
                 From = from,
@@ -358,14 +361,15 @@ public class GraphMailWorker(
             {
                 // 201 = created, 409 = duplicate (correlationId already has a non-terminal task)
                 var action = taskResp.IsSuccessStatusCode ? "task created" : "task already exists";
-                logger.LogInformation("GraphMailWorker: {Action} — from {From} re: {Subject}", action, from, subject);
+                logger.LogInformation("GraphMailWorker: {Action} ({Code}) — from {From} re: {Subject}",
+                    action, (int)taskResp.StatusCode, from, subject);
                 await MarkReadAsync(graphHttp, graphId, ct);
             }
             else
             {
                 var err = await taskResp.Content.ReadAsStringAsync(ct);
-                logger.LogError("GraphMailWorker: Dispatcher rejected task ({Code}): {Err}",
-                    taskResp.StatusCode, err);
+                logger.LogWarning("GraphMailWorker: Dispatcher rejected task — {Code} from={From} subject={Subject} body={Err}",
+                    (int)taskResp.StatusCode, from, subject, err);
                 // Don't mark read — will retry next poll
             }
         }

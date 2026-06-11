@@ -24,6 +24,13 @@ public class DispatchWorker(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        logger.LogInformation("DispatchWorker: CopilotExe={Exe} (exists={Exists}), WorkDir={WorkDir} (exists={WdExists}), MaxConcurrency={Max}",
+            _config.CopilotExe,
+            File.Exists(_config.CopilotExe),
+            _config.ResolvedWorkDir,
+            Directory.Exists(_config.ResolvedWorkDir),
+            _config.MaxConcurrency);
+
         await RehydrateAsync(stoppingToken);
 
         logger.LogInformation("DispatchWorker ready (max concurrency: {Max})", _config.MaxConcurrency);

@@ -172,6 +172,10 @@ public class CopilotCliDispatcher(
 
         try
         {
+            var cmdLine = psi.FileName + " " + string.Join(" ",
+                psi.ArgumentList.Select(a => a.Contains(' ') ? $"\"{a}\"" : a));
+            logger.LogInformation("Task {TaskId}: launching: {CmdLine}", taskId, cmdLine);
+
             using var process = Process.Start(psi)
                 ?? throw new InvalidOperationException("Failed to start copilot process.");
 

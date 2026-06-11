@@ -158,6 +158,19 @@ using (var scope = app.Services.CreateScope())
 
 // Seed built-in ScheduledJob records (daily summary, weekly 1:1) on first start.
 var seedLogger = app.Services.GetRequiredService<ILogger<Program>>();
+
+// Startup summary — log resolved configuration so split-brain / path issues are immediately visible.
+var dispatchCfg = app.Configuration.GetSection("Dispatch");
+var resolvedExe     = dispatchCfg["CopilotExe"] ?? "(default: copilot)";
+var resolvedWorkDir = dispatchCfg["WorkDir"]     ?? "(default: tasks/)";
+seedLogger.LogInformation("Dispatcher startup — DB: {ConnStr}", connStr);
+seedLogger.LogInformation("Dispatcher startup — CopilotExe: {Exe} (exists: {Exists})",
+    resolvedExe, File.Exists(resolvedExe) || !Path.IsPathRooted(resolvedExe));
+seedLogger.LogInformation("Dispatcher startup — WorkDir: {WorkDir} (exists: {Exists})",
+    resolvedWorkDir, Directory.Exists(resolvedWorkDir));
+seedLogger.LogInformation("Dispatcher startup — Url: {Url}",
+    app.Configuration["Dispatcher:Url"] ?? "http://127.0.0.1:47777");
+
 await SchedulerWorker.SeedBuiltInJobsAsync(app.Services, app.Configuration, seedLogger);
 
 app.Services.GetRequiredService<PreferenceMemoryService>().EnsurePreferencesFileExists();
