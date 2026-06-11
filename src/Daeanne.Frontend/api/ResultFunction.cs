@@ -1,3 +1,4 @@
+using DaeanneFrontend.Api.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
@@ -6,12 +7,20 @@ namespace DaeanneFrontend.Api;
 
 public class ResultFunction
 {
+    private readonly ResultStore _store;
+
+    public ResultFunction(ResultStore store)
+    {
+        _store = store;
+    }
+
     [Function("result")]
-    public IActionResult GetResult(
+    public async Task<IActionResult> GetResult(
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "result/{correlationId}")] HttpRequest req,
         string correlationId)
     {
-        if (ResultReceiverFunction.Results.TryGetValue(correlationId, out var result))
+        var result = await _store.GetAsync(correlationId);
+        if (result is not null)
         {
             return new OkObjectResult(new
             {

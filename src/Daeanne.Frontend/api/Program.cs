@@ -1,6 +1,8 @@
 using Azure.Messaging.ServiceBus;
 using Azure.Monitor.OpenTelemetry.Exporter;
+using Azure.Storage.Blobs;
 using DaeanneFrontend.Api.Middleware;
+using DaeanneFrontend.Api.Services;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Builder;
 using Microsoft.Azure.Functions.Worker.OpenTelemetry;
@@ -30,6 +32,13 @@ var sbConnectionString = Environment.GetEnvironmentVariable("ServiceBusConnectio
 if (!string.IsNullOrEmpty(sbConnectionString))
 {
     builder.Services.AddSingleton(new ServiceBusClient(sbConnectionString));
+}
+
+var storageConnection = Environment.GetEnvironmentVariable("AzureWebJobsStorage");
+if (!string.IsNullOrEmpty(storageConnection))
+{
+    builder.Services.AddSingleton(new BlobServiceClient(storageConnection));
+    builder.Services.AddSingleton<ResultStore>();
 }
 
 if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTION_STRING")))
