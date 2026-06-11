@@ -1,32 +1,16 @@
 {
   "routes": [
     {
-      "route": "/api/health",
-      "allowedRoles": ["anonymous"]
-    },
-    {
-      "route": "/api/get-roles",
-      "allowedRoles": ["anonymous"]
-    },
-    {
-      "route": "/api/*",
-      "allowedRoles": ["admin"]
-    },
-    {
-      "route": "/.auth/login/aad",
-      "allowedRoles": ["anonymous"]
-    },
-    {
-      "route": "/.auth/logout",
-      "allowedRoles": ["anonymous"]
-    },
-    {
       "route": "/.auth/login/github",
       "statusCode": 404
     },
     {
       "route": "/.auth/login/twitter",
       "statusCode": 404
+    },
+    {
+      "route": "/.auth/*",
+      "allowedRoles": ["anonymous"]
     },
     {
       "route": "/*",
