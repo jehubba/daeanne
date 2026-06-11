@@ -4,13 +4,13 @@
 <MudAppBar Bottom="true" Fixed="true" Elevation="4" Dense="true">
     <MudGrid Spacing="0" Justify="Justify.SpaceAround" Class="align-center" Style="width:100%">
         <MudItem>
-            <MudIconButton Icon="@Icons.Material.Filled.TaskAlt"
-                           Color="@(IsActive("/") ? Color.Primary : Color.Default)" OnClick="@(() => Nav.NavigateTo("/"))" />
+            <MudIconButton Icon="@Icons.Material.Filled.Chat" Color="@(IsActive("/") ? Color.Primary : Color.Default)"
+                           OnClick="@(() => Nav.NavigateTo("/"))" />
         </MudItem>
         <MudItem>
-            <MudIconButton Icon="@Icons.Material.Filled.Chat"
-                           Color="@(IsActive("/chat") ? Color.Primary : Color.Default)"
-                           OnClick="@(() => Nav.NavigateTo("/chat"))" />
+            <MudIconButton Icon="@Icons.Material.Filled.TaskAlt"
+                           Color="@(IsActive("/tasks") ? Color.Primary : Color.Default)"
+                           OnClick="@(() => Nav.NavigateTo("/tasks"))" />
         </MudItem>
     </MudGrid>
 </MudAppBar>

@@ -14,8 +14,10 @@ public class DaeanneApiClient
 
     public async Task<(List<TaskDto> Tasks, int Total)> GetTasksAsync(int skip = 0, int take = 50, CancellationToken ct = default)
     {
-        var response = await _http.GetFromJsonAsync<TaskListResponse>($"api/tasks?skip={skip}&take={take}", ct);
-        return (response?.Tasks ?? [], response?.Total ?? 0);
+        var response = await _http.GetAsync($"api/tasks?skip={skip}&take={take}", ct);
+        if (!response.IsSuccessStatusCode) return ([], 0);
+        var result = await response.Content.ReadFromJsonAsync<TaskListResponse>(cancellationToken: ct);
+        return (result?.Tasks ?? [], result?.Total ?? 0);
     }
 
     public async Task<TaskDto?> GetTaskAsync(int id, CancellationToken ct = default)
