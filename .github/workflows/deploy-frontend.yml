@@ -4,8 +4,9 @@ on:
   push:
     branches: [feat/daeanne-frontend]
     paths:
-      - 'src/Daeanne.Frontend/**'
-      - 'src/Daeanne.Shared/**'
+      - "src/Daeanne.Frontend/**"
+      - "src/Daeanne.Shared/**"
+      - ".github/workflows/deploy-frontend.yml"
   workflow_dispatch:
 
 jobs:
@@ -20,7 +21,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: "8.0.x"
 
       - name: Build Client
         run: dotnet publish src/Daeanne.Frontend/Client/DaeanneFrontend.Client.csproj -c Release -o client-publish
@@ -34,10 +35,23 @@ jobs:
       - name: Filter SWA-compatible functions
         run: |
           # SWA managed functions only support HTTP triggers.
-          # Remove ServiceBus and other non-HTTP triggers from the metadata.
-          jq '[.[] | select(.bindings | map(select(.type == "httpTrigger")) | length > 0)]' \
-            api-publish/functions.metadata > api-publish/functions.metadata.tmp
-          mv api-publish/functions.metadata.tmp api-publish/functions.metadata
+          # 1. Remove non-HTTP triggers from functions.metadata
+          if [ -f api-publish/functions.metadata ]; then
+            jq '[.[] | select(.bindings | map(select(.type == "httpTrigger")) | length > 0)]' \
+              api-publish/functions.metadata > api-publish/functions.metadata.tmp
+            mv api-publish/functions.metadata.tmp api-publish/functions.metadata
+            echo "Filtered functions.metadata to HTTP-only triggers:"
+            jq '.[].name' api-publish/functions.metadata
+          fi
+          # 2. Remove ServiceBus extension from extensions.json
+          if [ -f api-publish/extensions.json ]; then
+            jq 'del(.extensions[] | select(.name | test("ServiceBus";"i")))' \
+              api-publish/extensions.json > api-publish/extensions.json.tmp
+            mv api-publish/extensions.json.tmp api-publish/extensions.json
+          fi
+          # 3. Remove ServiceBus extension DLLs to prevent server-side detection
+          rm -f api-publish/Microsoft.Azure.Functions.Worker.Extensions.ServiceBus.dll
+          rm -f api-publish/Azure.Messaging.ServiceBus.dll
 
       - name: Deploy to Azure Static Web Apps
         uses: Azure/static-web-apps-deploy@v1
