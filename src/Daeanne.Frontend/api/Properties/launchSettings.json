@@ -1,0 +1,9 @@
+{
+  "profiles": {
+    "DaeanneFrontend.Api": {
+      "commandName": "Project",
+      "commandLineArgs": "--port 7138",
+      "launchBrowser": false
+    }
+  }
+}
