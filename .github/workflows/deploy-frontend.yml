@@ -31,8 +31,19 @@ jobs:
       - name: Build API
         run: dotnet publish src/Daeanne.Frontend/api/DaeanneFrontend.Api.csproj -c Release -o api-publish
 
+      - name: Filter SWA-compatible functions
+        run: |
+          # SWA managed functions only support HTTP triggers.
+          # Remove ServiceBus and other non-HTTP triggers from the metadata.
+          jq '[.[] | select(.bindings | map(select(.type == "httpTrigger")) | length > 0)]' \
+            api-publish/functions.metadata > api-publish/functions.metadata.tmp
+          mv api-publish/functions.metadata.tmp api-publish/functions.metadata
+
       - name: Deploy to Azure Static Web Apps
         uses: Azure/static-web-apps-deploy@v1
+        env:
+          INPUT_API_LANGUAGE: dotnetisolated
+          INPUT_API_LANGUAGE_VERSION: "8"
         with:
           azure_static_web_apps_api_token: ${{ secrets.SWA_DEPLOYMENT_TOKEN }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
@@ -41,5 +52,3 @@ jobs:
           api_location: api-publish
           skip_app_build: true
           skip_api_build: true
-          api_language: dotnetisolated
-          api_language_version: "8"
