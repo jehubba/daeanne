@@ -1,0 +1,45 @@
+@using DaeanneFrontend.Shared
+
+@if (Tasks is null || !Tasks.Any())
+{
+    <MudAlert Severity="Severity.Info" Class="ma-4">No tasks to display.</MudAlert>
+}
+else
+{
+    @foreach (var group in GroupedTasks)
+    {
+        <MudText Typo="Typo.overline" Class="px-4 pt-3">@group.Key</MudText>
+        @foreach (var task in group.Value)
+        {
+            <DaeanneFrontend.Client.Components.Tasks.TaskCard Task="@task" OnTaskClicked="OnTaskClicked" />
+        }
+    }
+}
+
+@code {
+    [Parameter]
+    public List<TaskDto>? Tasks { get; set; }
+
+    [Parameter]
+    public EventCallback<TaskDto> OnTaskClicked { get; set; }
+
+    private Dictionary<string, List<TaskDto>> GroupedTasks => GroupTasks(Tasks);
+
+    private static readonly string[] StatusOrder = ["Running", "Pending", "Blocked", "Awaiting", "Succeeded", "Failed", "TimedOut", "Escalated"];
+
+    private static Dictionary<string, List<TaskDto>> GroupTasks(List<TaskDto>? tasks)
+    {
+        if (tasks is null) return new();
+
+        return tasks
+            .GroupBy(t => GetDisplayGroup(t.Status))
+            .OrderBy(g => Array.IndexOf(StatusOrder, g.Key) is var idx && idx >= 0 ? idx : 99)
+            .ToDictionary(g => g.Key, g => g.ToList());
+    }
+
+    private static string GetDisplayGroup(string status) => status switch
+    {
+        "Blocked" or "Awaiting" => "Blocked",
+        _ => status
+    };
+}

@@ -1,0 +1,95 @@
+@using DaeanneFrontend.Client.Services
+@using DaeanneFrontend.Shared
+@inject DaeanneApiClient Api
+
+<MudOverlay Visible="true" DarkBackground="true" AutoClose="false">
+    <MudCard Style="width: 95vw; max-width: 600px; max-height: 90vh; overflow-y: auto;">
+        <MudCardHeader>
+            <CardHeaderContent>
+                @if (_task is not null)
+                {
+                    <MudText Typo="Typo.h6">@_task.Topic</MudText>
+                    <MudText Typo="Typo.caption">@_task.Type — @_task.Status</MudText>
+                }
+                else if (_isLoading)
+                {
+                    <MudText Typo="Typo.h6">Loading...</MudText>
+                }
+            </CardHeaderContent>
+            <CardHeaderActions>
+                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="Close" />
+            </CardHeaderActions>
+        </MudCardHeader>
+        <MudCardContent>
+            @if (_isLoading)
+            {
+                <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+            }
+            else if (_error is not null)
+            {
+                <MudAlert Severity="Severity.Error">@_error</MudAlert>
+            }
+            else if (_task is not null)
+            {
+                <MudSimpleTable Dense="true" Class="mb-4">
+                    <tbody>
+                        <tr><td><strong>Created</strong></td><td>@_task.CreatedAt.ToString("g")</td></tr>
+                        @if (_task.CompletedAt.HasValue)
+                        {
+                            <tr><td><strong>Completed</strong></td><td>@_task.CompletedAt.Value.ToString("g")</td></tr>
+                        }
+                        <tr><td><strong>Age</strong></td><td>@_task.Age</td></tr>
+                    </tbody>
+                </MudSimpleTable>
+
+                @if (_task.Status == "Failed" && !string.IsNullOrEmpty(_task.Error))
+                {
+                    <MudAlert Severity="Severity.Error" Class="mb-4">@_task.Error</MudAlert>
+                }
+
+                @if (!string.IsNullOrEmpty(_task.ResultJson))
+                {
+                    <MudText Typo="Typo.subtitle2" Class="mb-2">Result</MudText>
+                    <MudPaper Class="pa-3 overflow-auto" Style="max-height: 50vh; white-space: pre-wrap; word-break: break-word;">
+                        <MudText Typo="Typo.body2">@_task.ResultJson</MudText>
+                    </MudPaper>
+                }
+            }
+        </MudCardContent>
+    </MudCard>
+</MudOverlay>
+
+@code {
+    [Parameter, EditorRequired]
+    public int TaskId { get; set; }
+
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    private TaskDto? _task;
+    private bool _isLoading = true;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _task = await Api.GetTaskAsync(TaskId);
+            if (_task is null)
+                _error = "Task not found.";
+        }
+        catch (HttpRequestException)
+        {
+            _error = "Unable to load task details.";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task Close()
+    {
+        await OnClose.InvokeAsync();
+    }
+}

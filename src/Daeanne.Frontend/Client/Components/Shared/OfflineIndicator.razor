@@ -1,0 +1,22 @@
+@using DaeanneFrontend.Client.Services
+@inject ConnectivityService Connectivity
+@implements IDisposable
+
+@if (!Connectivity.IsOnline)
+{
+    <MudAlert Severity="Severity.Warning" Dense="true" Class="rounded-0">
+        You are offline. Some features may be unavailable.
+    </MudAlert>
+}
+
+@code {
+    protected override void OnInitialized()
+    {
+        Connectivity.OnStatusChanged += StateHasChanged;
+    }
+
+    public void Dispose()
+    {
+        Connectivity.OnStatusChanged -= StateHasChanged;
+    }
+}

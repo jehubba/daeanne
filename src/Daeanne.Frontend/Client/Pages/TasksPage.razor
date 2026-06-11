@@ -1,0 +1,93 @@
+@page "/"
+@using DaeanneFrontend.Client.Services
+@using DaeanneFrontend.Shared
+@inject DaeanneApiClient Api
+@implements IDisposable
+
+@if (_error is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="ma-4">@_error</MudAlert>
+}
+
+@if (_isLoading && _tasks is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+
+<DaeanneFrontend.Client.Components.Dashboard.TrendHighlights Highlights="@_trendHighlights" />
+
+<DaeanneFrontend.Client.Components.Tasks.TaskList Tasks="@_tasks" OnTaskClicked="OnTaskClicked" />
+
+@if (_selectedTask is not null)
+{
+    <DaeanneFrontend.Client.Components.Tasks.TaskDetailOverlay
+        TaskId="@_selectedTask.Id"
+        OnClose="CloseOverlay" />
+}
+
+@code {
+    private List<TaskDto>? _tasks;
+    private List<string>? _trendHighlights;
+    private string? _error;
+    private bool _isLoading;
+    private TaskDto? _selectedTask;
+    private Timer? _pollingTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTasksAsync();
+        await LoadTrendsAsync();
+        _pollingTimer = new Timer(async _ => await InvokeAsync(async () =>
+        {
+            await LoadTasksAsync();
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    private async Task LoadTasksAsync()
+    {
+        _isLoading = true;
+        _error = null;
+        try
+        {
+            var (tasks, _) = await Api.GetTasksAsync();
+            _tasks = tasks;
+        }
+        catch (HttpRequestException)
+        {
+            _error = "Unable to reach Daeanne. Check connectivity.";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task LoadTrendsAsync()
+    {
+        try
+        {
+            var trends = await Api.GetTrendsAsync();
+            _trendHighlights = trends?.Highlights;
+        }
+        catch
+        {
+            // Trends are non-critical — silently fail
+        }
+    }
+
+    private void OnTaskClicked(TaskDto task)
+    {
+        _selectedTask = task;
+    }
+
+    private void CloseOverlay()
+    {
+        _selectedTask = null;
+    }
+
+    public void Dispose()
+    {
+        _pollingTimer?.Dispose();
+    }
+}

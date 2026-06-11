@@ -1,0 +1,45 @@
+@using Microsoft.AspNetCore.Components.Routing
+@inject NavigationManager Nav
+
+<MudAppBar Bottom="true" Fixed="true" Elevation="4" Dense="true">
+    <MudGrid Spacing="0" Justify="Justify.SpaceAround" Class="align-center" Style="width:100%">
+        <MudItem>
+            <MudIconButton Icon="@Icons.Material.Filled.TaskAlt"
+                           Color="@(IsActive("/") ? Color.Primary : Color.Default)"
+                           OnClick="@(() => Nav.NavigateTo("/"))" />
+        </MudItem>
+        <MudItem>
+            <MudIconButton Icon="@Icons.Material.Filled.Chat"
+                           Color="@(IsActive("/chat") ? Color.Primary : Color.Default)"
+                           OnClick="@(() => Nav.NavigateTo("/chat"))" />
+        </MudItem>
+    </MudGrid>
+</MudAppBar>
+
+@code {
+    private string _currentUri = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        _currentUri = Nav.Uri;
+        Nav.LocationChanged += OnLocationChanged;
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        _currentUri = e.Location;
+        StateHasChanged();
+    }
+
+    private bool IsActive(string path)
+    {
+        var relativePath = Nav.ToBaseRelativePath(_currentUri);
+        if (path == "/") return string.IsNullOrEmpty(relativePath);
+        return relativePath.StartsWith(path.TrimStart('/'), StringComparison.OrdinalIgnoreCase);
+    }
+
+    public void Dispose()
+    {
+        Nav.LocationChanged -= OnLocationChanged;
+    }
+}

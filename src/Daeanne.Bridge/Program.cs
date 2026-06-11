@@ -12,6 +12,7 @@ builder.Services.AddHttpClient("dispatcher", client =>
 builder.Services.AddHostedService<BridgeWorker>();
 builder.Services.AddHostedService<GraphMailWorker>();
 builder.Services.AddHostedService<SmsSenderWorker>();
+builder.Services.AddHostedService<FrontendRelayWorker>();
 
 if (OperatingSystem.IsWindows())
     builder.Services.AddWindowsService();
@@ -41,5 +42,7 @@ app.MapGet("/health", () =>
         timestamp  = DateTime.UtcNow
     });
 });
+
+app.MapFrontendRelayEndpoints();
 
 app.Run();

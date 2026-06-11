@@ -1,0 +1,39 @@
+@using DaeanneFrontend.Shared
+
+<MudCard Class="mb-2 cursor-pointer" @onclick="OnClick">
+    <MudCardContent Class="pa-3">
+        <div class="d-flex justify-space-between align-center">
+            <div>
+                <MudText Typo="Typo.subtitle2">@Task.Topic</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Default">@Task.Type</MudText>
+            </div>
+            <div class="d-flex flex-column align-end">
+                <MudChip T="string" Size="Size.Small" Color="@GetStatusColor(Task.Status)">@Task.Status</MudChip>
+                <MudText Typo="Typo.caption">@Task.Age</MudText>
+            </div>
+        </div>
+    </MudCardContent>
+</MudCard>
+
+@code {
+    [Parameter, EditorRequired]
+    public TaskDto Task { get; set; } = default!;
+
+    [Parameter]
+    public EventCallback<TaskDto> OnTaskClicked { get; set; }
+
+    private async Task OnClick()
+    {
+        await OnTaskClicked.InvokeAsync(Task);
+    }
+
+    private static Color GetStatusColor(string status) => status switch
+    {
+        "Running" => Color.Info,
+        "Pending" => Color.Warning,
+        "Blocked" or "Awaiting" => Color.Error,
+        "Succeeded" => Color.Success,
+        "Failed" or "TimedOut" => Color.Error,
+        _ => Color.Default
+    };
+}

@@ -1,0 +1,51 @@
+@using DaeanneFrontend.Client.Models
+
+<div class="d-flex @(Message.Direction == ChatDirection.Sent ? "justify-end" : "justify-start") mb-2 px-2">
+    <MudPaper Class="pa-3" Style="@GetBubbleStyle()" Elevation="1" MaxWidth="80%">
+        <MudText Typo="Typo.body2">@Message.Content</MudText>
+        <div class="d-flex justify-space-between align-center mt-1">
+            <MudText Typo="Typo.caption" Color="Color.Default">
+                @Message.Timestamp.ToString("HH:mm")
+            </MudText>
+            @if (Message.Direction == ChatDirection.Sent)
+            {
+                <MudText Typo="Typo.caption" Color="@GetStatusColor()" Class="ml-2">
+                    @GetStatusText()
+                </MudText>
+            }
+        </div>
+        @if (Message.IsPending && Message.Direction == ChatDirection.Received)
+        {
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" Class="mt-1" />
+        }
+    </MudPaper>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public ChatMessage Message { get; set; } = default!;
+
+    private string GetBubbleStyle()
+    {
+        var bg = Message.Direction == ChatDirection.Sent
+            ? "background-color: var(--mud-palette-primary-darken);"
+            : "background-color: var(--mud-palette-surface);";
+        return $"{bg} border-radius: 12px; max-width: 80%;";
+    }
+
+    private Color GetStatusColor() => Message.Status switch
+    {
+        ChatStatus.Error => Color.Error,
+        ChatStatus.Delivered => Color.Success,
+        _ => Color.Default
+    };
+
+    private string GetStatusText() => Message.Status switch
+    {
+        ChatStatus.Sending => "Sending...",
+        ChatStatus.Sent => "Sent",
+        ChatStatus.Delivered => "Delivered",
+        ChatStatus.Error => "Failed",
+        _ => ""
+    };
+}

@@ -1,0 +1,30 @@
+@using DaeanneFrontend.Shared
+
+@if (_highlights is not null && _highlights.Any())
+{
+    <MudPaper Class="pa-3 ma-4" Elevation="1">
+        <MudText Typo="Typo.subtitle1" Class="mb-2">
+            <MudIcon Icon="@Icons.Material.Filled.TrendingUp" Size="Size.Small" Class="mr-1" />
+            Today's Trends
+        </MudText>
+        <MudList T="string" Dense="true">
+            @foreach (var highlight in _highlights)
+            {
+                <MudListItem T="string" Icon="@Icons.Material.Filled.Circle" IconSize="Size.Small" IconColor="Color.Primary">
+                    @highlight
+                </MudListItem>
+            }
+        </MudList>
+    </MudPaper>
+}
+
+@code {
+    [Parameter]
+    public List<string>? Highlights
+    {
+        get => _highlights;
+        set => _highlights = value;
+    }
+
+    private List<string>? _highlights;
+}

@@ -1,0 +1,99 @@
+@page "/chat"
+@using DaeanneFrontend.Client.Models
+@using DaeanneFrontend.Client.Services
+@using DaeanneFrontend.Shared
+@inject DaeanneApiClient Api
+@implements IDisposable
+
+<DaeanneFrontend.Client.Components.Chat.ChatView Messages="@_messages" OnMessageSent="HandleMessageSent" />
+
+@code {
+    private readonly List<ChatMessage> _messages = new();
+    private CancellationTokenSource? _cts;
+
+    private async Task HandleMessageSent(string text)
+    {
+        var userMessage = new ChatMessage
+        {
+            Direction = ChatDirection.Sent,
+            Content = text,
+            Status = ChatStatus.Sending
+        };
+        _messages.Add(userMessage);
+        StateHasChanged();
+
+        try
+        {
+            var result = await Api.SendCommandAsync(new CommandRequest(text));
+            if (result is null)
+            {
+                userMessage.Status = ChatStatus.Error;
+                StateHasChanged();
+                return;
+            }
+
+            userMessage.Status = ChatStatus.Sent;
+            userMessage.CorrelationId = result.CorrelationId;
+            StateHasChanged();
+
+            // Start polling for the result
+            await PollForResultAsync(result.CorrelationId);
+        }
+        catch
+        {
+            userMessage.Status = ChatStatus.Error;
+            // Input text is already cleared from the input field; the sent message
+            // shows the text, so the user can see and re-send it
+            StateHasChanged();
+        }
+    }
+
+    private async Task PollForResultAsync(string correlationId)
+    {
+        _cts?.Cancel();
+        _cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+        var ct = _cts.Token;
+
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(2000, ct);
+                var result = await Api.PollResultAsync(correlationId, ct);
+                if (result is null) continue;
+
+                if (result.Status is "completed" or "failed")
+                {
+                    var responseMessage = new ChatMessage
+                    {
+                        Direction = ChatDirection.Received,
+                        Content = result.Response ?? result.Error ?? "No response",
+                        Status = result.Status == "completed" ? ChatStatus.Delivered : ChatStatus.Error,
+                        CorrelationId = correlationId
+                    };
+                    _messages.Add(responseMessage);
+                    StateHasChanged();
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            var timeoutMessage = new ChatMessage
+            {
+                Direction = ChatDirection.Received,
+                Content = "Request may not have been processed — timed out waiting for response.",
+                Status = ChatStatus.Error,
+                CorrelationId = correlationId
+            };
+            _messages.Add(timeoutMessage);
+            StateHasChanged();
+        }
+    }
+
+    public void Dispose()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+    }
+}

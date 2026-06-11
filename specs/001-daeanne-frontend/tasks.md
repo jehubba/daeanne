@@ -19,14 +19,14 @@
 
 **Purpose**: Project initialization — add dependencies, remove boilerplate, configure MudBlazor
 
-- [ ] T001 Add MudBlazor NuGet package to src/Daeanne.Frontend/Client/DaeanneFrontend.Client.csproj
-- [ ] T002 [P] Add Azure.Messaging.ServiceBus NuGet package to src/Daeanne.Frontend/api/DaeanneFrontend.Api.csproj
-- [ ] T003 [P] Add project reference to src/Daeanne.Shared/Daeanne.Shared.csproj from src/Daeanne.Frontend/api/DaeanneFrontend.Api.csproj
-- [ ] T004 [P] Remove boilerplate files: Client/Pages/Counter.razor, Client/Pages/FetchData.razor, Client/Shared/SurveyPrompt.razor, Shared/WeatherForecast.cs, Server/Controllers/WeatherForecastController.cs
-- [ ] T005 Configure MudBlazor services in src/Daeanne.Frontend/Client/Program.cs (AddMudServices)
-- [ ] T006 [P] Update src/Daeanne.Frontend/Client/\_Imports.razor with MudBlazor namespaces (@using MudBlazor)
-- [ ] T007 Rework src/Daeanne.Frontend/Client/App.razor with MudThemeProvider and MudDialogProvider
-- [ ] T008 Update src/Daeanne.Frontend/Client/wwwroot/index.html — replace Bootstrap with MudBlazor CSS/JS, add viewport meta for mobile
+- [X] T001 Add MudBlazor NuGet package to src/Daeanne.Frontend/Client/DaeanneFrontend.Client.csproj
+- [X] T002 [P] Add Azure.Messaging.ServiceBus NuGet package to src/Daeanne.Frontend/api/DaeanneFrontend.Api.csproj
+- [X] T003 [P] Add project reference to src/Daeanne.Shared/Daeanne.Shared.csproj from src/Daeanne.Frontend/api/DaeanneFrontend.Api.csproj
+- [X] T004 [P] Remove boilerplate files: Client/Pages/Counter.razor, Client/Pages/FetchData.razor, Client/Shared/SurveyPrompt.razor, Shared/WeatherForecast.cs, Server/Controllers/WeatherForecastController.cs
+- [X] T005 Configure MudBlazor services in src/Daeanne.Frontend/Client/Program.cs (AddMudServices)
+- [X] T006 [P] Update src/Daeanne.Frontend/Client/\_Imports.razor with MudBlazor namespaces (@using MudBlazor)
+- [X] T007 Rework src/Daeanne.Frontend/Client/App.razor with MudThemeProvider and MudDialogProvider
+- [X] T008 Update src/Daeanne.Frontend/Client/wwwroot/index.html — replace Bootstrap with MudBlazor CSS/JS, add viewport meta for mobile
 
 ---
 
@@ -38,37 +38,37 @@
 
 ### Shared DTOs (Frontend ↔ API)
 
-- [ ] T009 [P] Create TaskDto record in src/Daeanne.Frontend/Shared/TaskDto.cs per data-model.md (Id, Type, Topic, Status, Age, CreatedAt, CompletedAt, ResultJson, Error, CorrelationId)
-- [ ] T010 [P] Create CommandRequest record in src/Daeanne.Frontend/Shared/CommandRequest.cs per contracts/api.md (Prompt, TaskType)
-- [ ] T011 [P] Create CommandResultDto record in src/Daeanne.Frontend/Shared/CommandResultDto.cs per contracts/api.md (CorrelationId, Status, Succeeded, Response, Error)
-- [ ] T012 [P] Create TrendHighlightDto record in src/Daeanne.Frontend/Shared/TrendHighlightDto.cs per data-model.md (Date, Highlights list)
+- [X] T009 [P] Create TaskDto record in src/Daeanne.Frontend/Shared/TaskDto.cs per data-model.md (Id, Type, Topic, Status, Age, CreatedAt, CompletedAt, ResultJson, Error, CorrelationId)
+- [X] T010 [P] Create CommandRequest record in src/Daeanne.Frontend/Shared/CommandRequest.cs per contracts/api.md (Prompt, TaskType)
+- [X] T011 [P] Create CommandResultDto record in src/Daeanne.Frontend/Shared/CommandResultDto.cs per contracts/api.md (CorrelationId, Status, Succeeded, Response, Error)
+- [X] T012 [P] Create TrendHighlightDto record in src/Daeanne.Frontend/Shared/TrendHighlightDto.cs per data-model.md (Date, Highlights list)
 
 ### Service Bus Message Contracts (Daeanne.Shared — cross-project)
 
-- [ ] T013 [P] Create FrontendRequest record in src/Daeanne.Shared/Models/FrontendRequest.cs per research.md R5 (Prompt, CorrelationId, TaskType)
-- [ ] T014 [P] Create FrontendResult record in src/Daeanne.Shared/Models/FrontendResult.cs per research.md R5 (CorrelationId, Succeeded, Response, Error)
+- [X] T013 [P] Create FrontendRequest record in src/Daeanne.Shared/Models/FrontendRequest.cs per research.md R5 (Prompt, CorrelationId, TaskType)
+- [X] T014 [P] Create FrontendResult record in src/Daeanne.Shared/Models/FrontendResult.cs per research.md R5 (CorrelationId, Succeeded, Response, Error)
 
 ### API Identity Guard
 
-- [ ] T015 Create IdentityGuard middleware in src/Daeanne.Frontend/api/Middleware/IdentityGuard.cs — decode x-ms-client-principal header, reject non-Jeffrey identities per research.md R4
-- [ ] T016 Register IdentityGuard middleware in src/Daeanne.Frontend/api/Program.cs
+- [X] T015 Create IdentityGuard middleware in src/Daeanne.Frontend/api/Middleware/IdentityGuard.cs — decode x-ms-client-principal header, reject non-Jeffrey identities per research.md R4
+- [X] T016 Register IdentityGuard middleware in src/Daeanne.Frontend/api/Program.cs
 
 ### Client Services
 
-- [ ] T017 [P] Create DaeanneApiClient typed HTTP client in src/Daeanne.Frontend/Client/Services/DaeanneApiClient.cs — methods: GetTasksAsync, GetTaskAsync, SendCommandAsync, PollResultAsync, GetTrendsAsync
-- [ ] T018 [P] Create ConnectivityService in src/Daeanne.Frontend/Client/Services/ConnectivityService.cs — tracks online/offline state, exposes IsOnline property and OnStatusChanged event
-- [ ] T019 Register DaeanneApiClient and ConnectivityService in src/Daeanne.Frontend/Client/Program.cs
+- [X] T017 [P] Create DaeanneApiClient typed HTTP client in src/Daeanne.Frontend/Client/Services/DaeanneApiClient.cs — methods: GetTasksAsync, GetTaskAsync, SendCommandAsync, PollResultAsync, GetTrendsAsync
+- [X] T018 [P] Create ConnectivityService in src/Daeanne.Frontend/Client/Services/ConnectivityService.cs — tracks online/offline state, exposes IsOnline property and OnStatusChanged event
+- [X] T019 Register DaeanneApiClient and ConnectivityService in src/Daeanne.Frontend/Client/Program.cs
 
 ### Mobile Shell Layout
 
-- [ ] T020 Rework src/Daeanne.Frontend/Client/Shared/MainLayout.razor — MudBlazor bottom tab bar (Tasks / Chat), mobile-first app shell per spec FR-017
-- [ ] T021 [P] Remove or replace src/Daeanne.Frontend/Client/Shared/NavMenu.razor (sidebar nav → bottom tabs)
+- [X] T020 Rework src/Daeanne.Frontend/Client/Shared/MainLayout.razor — MudBlazor bottom tab bar (Tasks / Chat), mobile-first app shell per spec FR-017
+- [X] T021 [P] Remove or replace src/Daeanne.Frontend/Client/Shared/NavMenu.razor (sidebar nav → bottom tabs)
 
 ### Bridge Relay (Local — read path)
 
-- [ ] T022 [P] Create FrontendRelayEndpoints in src/Daeanne.Bridge/FrontendRelayEndpoints.cs — GET /relay/tasks, GET /relay/tasks/{id}, GET /relay/trends/today (proxy to Dispatcher per contracts/api.md)
-- [ ] T023 [P] Create FrontendRelayWorker in src/Daeanne.Bridge/FrontendRelayWorker.cs — ServiceBusProcessor for daeanne-frontend-requests queue, processes commands and sends results to daeanne-frontend-results per research.md R3
-- [ ] T024 Register relay endpoints and FrontendRelayWorker in src/Daeanne.Bridge/Program.cs
+- [X] T022 [P] Create FrontendRelayEndpoints in src/Daeanne.Bridge/FrontendRelayEndpoints.cs — GET /relay/tasks, GET /relay/tasks/{id}, GET /relay/trends/today (proxy to Dispatcher per contracts/api.md)
+- [X] T023 [P] Create FrontendRelayWorker in src/Daeanne.Bridge/FrontendRelayWorker.cs — ServiceBusProcessor for daeanne-frontend-requests queue, processes commands and sends results to daeanne-frontend-results per research.md R3
+- [X] T024 Register relay endpoints and FrontendRelayWorker in src/Daeanne.Bridge/Program.cs
 
 **Checkpoint**: Foundation ready — all shared types compiled, identity guard active, Bridge relay running, client services registered. User story implementation can now begin.
 
@@ -82,16 +82,16 @@
 
 ### Tests for User Story 1
 
-- [ ] T025 [TDD-AGENT] [P] [US1] Write contract tests for GET /api/tasks and GET /api/tasks/{id} in src/Daeanne.Frontend/api.Tests/TasksFunctionTests.cs — verify response shape, status filtering, 24h completion window, pagination, 502 on Bridge unreachable
-- [ ] T026 [TDD-AGENT] [P] [US1] Write bUnit component tests for TaskList and TaskCard in src/Daeanne.Frontend/Client.Tests/Components/Tasks/TaskListTests.cs — verify grouping by status, empty state, age display, task type icons
+- [X] T025 [TDD-AGENT] [P] [US1] Write contract tests for GET /api/tasks and GET /api/tasks/{id} in src/Daeanne.Frontend/api.Tests/TasksFunctionTests.cs — verify response shape, status filtering, 24h completion window, pagination, 502 on Bridge unreachable
+- [X] T026 [TDD-AGENT] [P] [US1] Write bUnit component tests for TaskList and TaskCard in src/Daeanne.Frontend/Client.Tests/Components/Tasks/TaskListTests.cs — verify grouping by status, empty state, age display, task type icons
 
 ### Implementation for User Story 1
 
-- [ ] T027 [US1] Implement TasksFunction in src/Daeanne.Frontend/api/TasksFunction.cs — GET /api/tasks (paginated, filtered, 24h window for completed) and GET /api/tasks/{id} (full detail) per contracts/api.md
-- [ ] T028 [P] [US1] Create TaskCard component in src/Daeanne.Frontend/Client/Components/Tasks/TaskCard.razor — displays type, topic, status badge (color per data-model.md mapping), and age
-- [ ] T029 [US1] Create TaskList component in src/Daeanne.Frontend/Client/Components/Tasks/TaskList.razor — groups tasks by status (Running → Pending → Blocked → Succeeded → Failed), renders TaskCards, shows empty state
-- [ ] T030 [US1] Create TasksPage in src/Daeanne.Frontend/Client/Pages/TasksPage.razor — 30s polling timer (FR-003), pull-to-refresh gesture (FR-018), calls DaeanneApiClient.GetTasksAsync, default route (/)
-- [ ] T031 [US1] Remove src/Daeanne.Frontend/Client/Pages/Index.razor and wire TasksPage as default route @page "/"
+- [X] T027 [US1] Implement TasksFunction in src/Daeanne.Frontend/api/TasksFunction.cs — GET /api/tasks (paginated, filtered, 24h window for completed) and GET /api/tasks/{id} (full detail) per contracts/api.md
+- [X] T028 [P] [US1] Create TaskCard component in src/Daeanne.Frontend/Client/Components/Tasks/TaskCard.razor — displays type, topic, status badge (color per data-model.md mapping), and age
+- [X] T029 [US1] Create TaskList component in src/Daeanne.Frontend/Client/Components/Tasks/TaskList.razor — groups tasks by status (Running → Pending → Blocked → Succeeded → Failed), renders TaskCards, shows empty state
+- [X] T030 [US1] Create TasksPage in src/Daeanne.Frontend/Client/Pages/TasksPage.razor — 30s polling timer (FR-003), pull-to-refresh gesture (FR-018), calls DaeanneApiClient.GetTasksAsync, default route (/)
+- [X] T031 [US1] Remove src/Daeanne.Frontend/Client/Pages/Index.razor and wire TasksPage as default route @page "/"
 
 **Checkpoint**: Task dashboard is fully functional — grouped list, auto-refresh, pull-to-refresh, empty state. Story 1 testable independently.
 
@@ -105,18 +105,18 @@
 
 ### Tests for User Story 2
 
-- [ ] T032 [TDD-AGENT] [P] [US2] Write contract tests for POST /api/command and GET /api/result/{correlationId} in src/Daeanne.Frontend/api.Tests/CommandFunctionTests.cs — verify 202 with correlationId, 400 on empty prompt, pending vs completed result states, 404 on unknown correlationId
-- [ ] T033 [TDD-AGENT] [P] [US2] Write bUnit component tests for ChatView and ChatBubble in src/Daeanne.Frontend/Client.Tests/Components/Chat/ChatViewTests.cs — verify message rendering, send flow, ack display, error preservation (FR-016)
+- [X] T032 [TDD-AGENT] [P] [US2] Write contract tests for POST /api/command and GET /api/result/{correlationId} in src/Daeanne.Frontend/api.Tests/CommandFunctionTests.cs — verify 202 with correlationId, 400 on empty prompt, pending vs completed result states, 404 on unknown correlationId
+- [X] T033 [TDD-AGENT] [P] [US2] Write bUnit component tests for ChatView and ChatBubble in src/Daeanne.Frontend/Client.Tests/Components/Chat/ChatViewTests.cs — verify message rendering, send flow, ack display, error preservation (FR-016)
 
 ### Implementation for User Story 2
 
-- [ ] T034 [US2] Implement CommandFunction in src/Daeanne.Frontend/api/CommandFunction.cs — POST /api/command: validate prompt, generate correlationId, send FrontendRequest to daeanne-frontend-requests SB queue, return 202 per contracts/api.md
-- [ ] T035a [US2] Implement ResultReceiverFunction (SB-triggered) in src/Daeanne.Frontend/api/ResultReceiverFunction.cs — ServiceBusTrigger on daeanne-frontend-results queue, deserialize FrontendResult, store in static ConcurrentDictionary<string, FrontendResult> keyed by CorrelationId
-- [ ] T035b [US2] Implement ResultFunction in src/Daeanne.Frontend/api/ResultFunction.cs — GET /api/result/{correlationId}: read from ResultReceiverFunction's shared ConcurrentDictionary, return pending if not found or completed/failed if present per contracts/api.md
-- [ ] T036 [P] [US2] Create ChatBubble component in src/Daeanne.Frontend/Client/Components/Chat/ChatBubble.razor — sent vs received styling, timestamp, status indicator (Sending/Sent/Delivered/Error per data-model.md)
-- [ ] T037 [US2] Create ChatView component in src/Daeanne.Frontend/Client/Components/Chat/ChatView.razor — message list, text input at bottom, send button, auto-scroll, input preservation on error (FR-016), recent exchange history (FR-007)
-- [ ] T038 [US2] Create ChatPage in src/Daeanne.Frontend/Client/Pages/ChatPage.razor — route @page "/chat", orchestrates command submission via DaeanneApiClient.SendCommandAsync, polls for result via PollResultAsync, manages ChatMessage list per data-model.md command lifecycle
-- [ ] T039 [P] [US2] Create ChatMessage model (Id, Direction, Content, Timestamp, Status enums) in src/Daeanne.Frontend/Client/Models/ChatMessage.cs — standalone file per data-model.md entity definition
+- [X] T034 [US2] Implement CommandFunction in src/Daeanne.Frontend/api/CommandFunction.cs — POST /api/command: validate prompt, generate correlationId, send FrontendRequest to daeanne-frontend-requests SB queue, return 202 per contracts/api.md
+- [X] T035a [US2] Implement ResultReceiverFunction (SB-triggered) in src/Daeanne.Frontend/api/ResultReceiverFunction.cs — ServiceBusTrigger on daeanne-frontend-results queue, deserialize FrontendResult, store in static ConcurrentDictionary<string, FrontendResult> keyed by CorrelationId
+- [X] T035b [US2] Implement ResultFunction in src/Daeanne.Frontend/api/ResultFunction.cs — GET /api/result/{correlationId}: read from ResultReceiverFunction's shared ConcurrentDictionary, return pending if not found or completed/failed if present per contracts/api.md
+- [X] T036 [P] [US2] Create ChatBubble component in src/Daeanne.Frontend/Client/Components/Chat/ChatBubble.razor — sent vs received styling, timestamp, status indicator (Sending/Sent/Delivered/Error per data-model.md)
+- [X] T037 [US2] Create ChatView component in src/Daeanne.Frontend/Client/Components/Chat/ChatView.razor — message list, text input at bottom, send button, auto-scroll, input preservation on error (FR-016), recent exchange history (FR-007)
+- [X] T038 [US2] Create ChatPage in src/Daeanne.Frontend/Client/Pages/ChatPage.razor — route @page "/chat", orchestrates command submission via DaeanneApiClient.SendCommandAsync, polls for result via PollResultAsync, manages ChatMessage list per data-model.md command lifecycle
+- [X] T039 [P] [US2] Create ChatMessage model (Id, Direction, Content, Timestamp, Status enums) in src/Daeanne.Frontend/Client/Models/ChatMessage.cs — standalone file per data-model.md entity definition
 
 **Checkpoint**: Chat interface is fully functional — send command, receive ack, see response. US2 testable independently.
 
@@ -130,12 +130,12 @@
 
 ### Tests for User Story 3
 
-- [ ] T040 [TDD-AGENT] [US3] Write bUnit component tests for TaskDetailOverlay in src/Daeanne.Frontend/Client.Tests/Components/Tasks/TaskDetailOverlayTests.cs — verify overlay opens with full ResultJson, scrollable content, close behavior, error display for failed tasks
+- [X] T040 [TDD-AGENT] [US3] Write bUnit component tests for TaskDetailOverlay in src/Daeanne.Frontend/Client.Tests/Components/Tasks/TaskDetailOverlayTests.cs — verify overlay opens with full ResultJson, scrollable content, close behavior, error display for failed tasks
 
 ### Implementation for User Story 3
 
-- [ ] T041 [US3] Create TaskDetailOverlay component in src/Daeanne.Frontend/Client/Components/Tasks/TaskDetailOverlay.razor — MudOverlay/MudDrawer with scrollable content, displays ResultJson or Error, close button, mobile-friendly per spec FR-008
-- [ ] T042 [US3] Wire overlay trigger from TaskCard tap in src/Daeanne.Frontend/Client/Pages/TasksPage.razor — on card click, fetch full task via DaeanneApiClient.GetTaskAsync, open TaskDetailOverlay
+- [X] T041 [US3] Create TaskDetailOverlay component in src/Daeanne.Frontend/Client/Components/Tasks/TaskDetailOverlay.razor — MudOverlay/MudDrawer with scrollable content, displays ResultJson or Error, close button, mobile-friendly per spec FR-008
+- [X] T042 [US3] Wire overlay trigger from TaskCard tap in src/Daeanne.Frontend/Client/Pages/TasksPage.razor — on card click, fetch full task via DaeanneApiClient.GetTaskAsync, open TaskDetailOverlay
 
 **Checkpoint**: Task detail drill-down works — tap task → see output → scroll → close. US3 testable independently.
 
@@ -149,14 +149,14 @@
 
 ### Tests for User Story 4
 
-- [ ] T043 [TDD-AGENT] [P] [US4] Write contract tests for GET /api/trends/today in src/Daeanne.Frontend/api.Tests/TrendFunctionTests.cs — verify response shape, empty highlights array when no data, correct date
-- [ ] T044 [TDD-AGENT] [P] [US4] Write bUnit component tests for TrendHighlights in src/Daeanne.Frontend/Client.Tests/Components/Dashboard/TrendHighlightsTests.cs — verify highlights render, empty state hidden
+- [X] T043 [TDD-AGENT] [P] [US4] Write contract tests for GET /api/trends/today in src/Daeanne.Frontend/api.Tests/TrendFunctionTests.cs — verify response shape, empty highlights array when no data, correct date
+- [X] T044 [TDD-AGENT] [P] [US4] Write bUnit component tests for TrendHighlights in src/Daeanne.Frontend/Client.Tests/Components/Dashboard/TrendHighlightsTests.cs — verify highlights render, empty state hidden
 
 ### Implementation for User Story 4
 
-- [ ] T045 [US4] Implement TrendFunction in src/Daeanne.Frontend/api/TrendFunction.cs — GET /api/trends/today: relay to Bridge GET /relay/trends/today, return TrendHighlightDto per contracts/api.md
-- [ ] T046 [US4] Create TrendHighlights component in src/Daeanne.Frontend/Client/Components/Dashboard/TrendHighlights.razor — displays today's trend summary, hidden when no data (FR-014)
-- [ ] T047 [US4] Integrate TrendHighlights into TasksPage in src/Daeanne.Frontend/Client/Pages/TasksPage.razor — render above task list, load via DaeanneApiClient.GetTrendsAsync
+- [X] T045 [US4] Implement TrendFunction in src/Daeanne.Frontend/api/TrendFunction.cs — GET /api/trends/today: relay to Bridge GET /relay/trends/today, return TrendHighlightDto per contracts/api.md
+- [X] T046 [US4] Create TrendHighlights component in src/Daeanne.Frontend/Client/Components/Dashboard/TrendHighlights.razor — displays today's trend summary, hidden when no data (FR-014)
+- [X] T047 [US4] Integrate TrendHighlights into TasksPage in src/Daeanne.Frontend/Client/Pages/TasksPage.razor — render above task list, load via DaeanneApiClient.GetTrendsAsync
 
 **Checkpoint**: Trend highlights visible on dashboard when data exists. US4 testable independently.
 
@@ -170,15 +170,15 @@
 
 ### Tests for User Story 5
 
-- [ ] T048 [TDD-AGENT] [US5] Write Playwright E2E tests for PWA installability and responsive viewport in src/Daeanne.Frontend/E2E.Tests/PwaTests.cs — verify manifest presence, service worker registration, 390px viewport usability
+- [X] T048 [TDD-AGENT] [US5] Write Playwright E2E tests for PWA installability and responsive viewport in src/Daeanne.Frontend/E2E.Tests/PwaTests.cs — verify manifest presence, service worker registration, 390px viewport usability
 
 ### Implementation for User Story 5
 
-- [ ] T049 [P] [US5] Create manifest.webmanifest in src/Daeanne.Frontend/Client/wwwroot/manifest.webmanifest — name "Daeanne", display "standalone", theme color, start URL "/", icons 192px + 512px
-- [ ] T050 [P] [US5] Create service-worker.js in src/Daeanne.Frontend/Client/wwwroot/service-worker.js — cache app shell assets for offline launch
-- [ ] T051 [P] [US5] Add PWA icons (192px, 512px PNG) to src/Daeanne.Frontend/Client/wwwroot/icons/
-- [ ] T052 [US5] Update src/Daeanne.Frontend/Client/wwwroot/index.html — add manifest link, service-worker registration script, apple-touch-icon meta tags
-- [ ] T053 [US5] Configure PWA service worker in src/Daeanne.Frontend/Client/DaeanneFrontend.Client.csproj — add ServiceWorkerAssetsManifest property
+- [X] T049 [P] [US5] Create manifest.webmanifest in src/Daeanne.Frontend/Client/wwwroot/manifest.webmanifest — name "Daeanne", display "standalone", theme color, start URL "/", icons 192px + 512px
+- [X] T050 [P] [US5] Create service-worker.js in src/Daeanne.Frontend/Client/wwwroot/service-worker.js — cache app shell assets for offline launch
+- [X] T051 [P] [US5] Add PWA icons (192px, 512px PNG) to src/Daeanne.Frontend/Client/wwwroot/icons/
+- [X] T052 [US5] Update src/Daeanne.Frontend/Client/wwwroot/index.html — add manifest link, service-worker registration script, apple-touch-icon meta tags
+- [X] T053 [US5] Configure PWA service worker in src/Daeanne.Frontend/Client/DaeanneFrontend.Client.csproj — add ServiceWorkerAssetsManifest property
 
 **Checkpoint**: App installs as PWA, launches standalone, fully usable at 390px. US5 testable independently.
 
@@ -192,12 +192,12 @@
 
 ### Tests for User Story 6
 
-- [ ] T054 [TDD-AGENT] [US6] Write integration tests for IdentityGuard in src/Daeanne.Frontend/api.Tests/IdentityGuardTests.cs — verify rejection of missing header, invalid principal, non-Jeffrey identity; verify acceptance of Jeffrey's identity
+- [X] T054 [TDD-AGENT] [US6] Write integration tests for IdentityGuard in src/Daeanne.Frontend/api.Tests/IdentityGuardTests.cs — verify rejection of missing header, invalid principal, non-Jeffrey identity; verify acceptance of Jeffrey's identity
 
 ### Implementation for User Story 6
 
-- [ ] T055 [US6] Harden src/Daeanne.Frontend/staticwebapp.config.json — restrict /api/\* routes to authenticated users (remove anonymous), verify response overrides redirect 401 → /.auth/login/aad
-- [ ] T056 [US6] Add auth state detection to Blazor client — login/logout awareness in src/Daeanne.Frontend/Client/Program.cs or a shared auth state service, display user greeting in MainLayout
+- [X] T055 [US6] Harden src/Daeanne.Frontend/staticwebapp.config.json — restrict /api/\* routes to authenticated users (remove anonymous), verify response overrides redirect 401 → /.auth/login/aad
+- [X] T056 [US6] Add auth state detection to Blazor client — login/logout awareness in src/Daeanne.Frontend/Client/Program.cs or a shared auth state service, display user greeting in MainLayout
 
 **Checkpoint**: Auth gates all access. Only Jeffrey permitted. No port exposure. US6 testable independently.
 
@@ -207,13 +207,13 @@
 
 **Purpose**: Improvements that affect multiple user stories — offline indicator, error states, validation
 
-- [ ] T057 [P] Create OfflineIndicator component in src/Daeanne.Frontend/Client/Components/Shared/OfflineIndicator.razor — banner shows when ConnectivityService.IsOnline is false (FR-015)
-- [ ] T058 Wire OfflineIndicator into MainLayout in src/Daeanne.Frontend/Client/Shared/MainLayout.razor — persistent banner below app bar
-- [ ] T059 [P] Add empty-state messages to TasksPage (no tasks), ChatPage (no messages), TrendHighlights (no trends) per edge cases in spec.md
-- [ ] T060 Verify input text preservation on network failure in ChatView per FR-016 and data-model.md error flow
-- [ ] T061 Run quickstart.md validation scenarios V1–V7 end-to-end
-- [ ] T062 [US1] Add pagination support to TasksPage — "load more" button or infinite scroll using skip/take query params from DaeanneApiClient.GetTasksAsync per contracts/api.md pagination parameters
-- [ ] T063 Verify published Blazor WASM bundle size < 1MB — run `dotnet publish -c Release` on Client project and check total size of `wwwroot/_framework/*.dll` per plan.md constraint
+- [X] T057 [P] Create OfflineIndicator component in src/Daeanne.Frontend/Client/Components/Shared/OfflineIndicator.razor — banner shows when ConnectivityService.IsOnline is false (FR-015)
+- [X] T058 Wire OfflineIndicator into MainLayout in src/Daeanne.Frontend/Client/Shared/MainLayout.razor — persistent banner below app bar
+- [X] T059 [P] Add empty-state messages to TasksPage (no tasks), ChatPage (no messages), TrendHighlights (no trends) per edge cases in spec.md
+- [X] T060 Verify input text preservation on network failure in ChatView per FR-016 and data-model.md error flow
+- [X] T061 Run quickstart.md validation scenarios V1–V7 end-to-end
+- [X] T062 [US1] Add pagination support to TasksPage — "load more" button or infinite scroll using skip/take query params from DaeanneApiClient.GetTasksAsync per contracts/api.md pagination parameters
+- [X] T063 Verify published Blazor WASM bundle size < 1MB — run `dotnet publish -c Release` on Client project and check total size of `wwwroot/_framework/*.dll` per plan.md constraint
 
 ---
 

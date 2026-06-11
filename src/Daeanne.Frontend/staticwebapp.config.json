@@ -1,8 +1,12 @@
 {
   "routes": [
     {
-      "route": "/api/*",
+      "route": "/api/health",
       "allowedRoles": ["anonymous"]
+    },
+    {
+      "route": "/api/*",
+      "allowedRoles": ["authenticated"]
     },
     {
       "route": "/.auth/login/aad",
