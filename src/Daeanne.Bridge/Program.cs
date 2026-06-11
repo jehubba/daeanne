@@ -27,19 +27,19 @@ app.MapGet("/health", () =>
     if (!BridgeHealth.GraphTokenOk)
         return Results.Json(new
         {
-            status    = "degraded",
-            service   = "bridge",
+            status = "degraded",
+            service = "bridge",
             graphToken = "invalid",
-            error     = BridgeHealth.GraphTokenError,
+            error = BridgeHealth.GraphTokenError,
             timestamp = DateTime.UtcNow
         }, statusCode: 503);
 
     return Results.Ok(new
     {
-        status     = "healthy",
-        service    = "bridge",
+        status = "healthy",
+        service = "bridge",
         graphToken = "ok",
-        timestamp  = DateTime.UtcNow
+        timestamp = DateTime.UtcNow
     });
 });
 

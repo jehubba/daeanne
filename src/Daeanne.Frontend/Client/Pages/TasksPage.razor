@@ -20,9 +20,7 @@
 
 @if (_selectedTask is not null)
 {
-    <DaeanneFrontend.Client.Components.Tasks.TaskDetailOverlay
-        TaskId="@_selectedTask.Id"
-        OnClose="CloseOverlay" />
+    <DaeanneFrontend.Client.Components.Tasks.TaskDetailOverlay TaskId="@_selectedTask.Id" OnClose="CloseOverlay" />
 }
 
 @code {

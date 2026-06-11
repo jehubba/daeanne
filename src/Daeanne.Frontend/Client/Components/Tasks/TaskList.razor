@@ -25,7 +25,8 @@ else
 
     private Dictionary<string, List<TaskDto>> GroupedTasks => GroupTasks(Tasks);
 
-    private static readonly string[] StatusOrder = ["Running", "Pending", "Blocked", "Awaiting", "Succeeded", "Failed", "TimedOut", "Escalated"];
+    private static readonly string[] StatusOrder = ["Running", "Pending", "Blocked", "Awaiting", "Succeeded", "Failed",
+"TimedOut", "Escalated"];
 
     private static Dictionary<string, List<TaskDto>> GroupTasks(List<TaskDto>? tasks)
     {

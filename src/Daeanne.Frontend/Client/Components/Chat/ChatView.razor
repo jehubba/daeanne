@@ -15,17 +15,10 @@
     </div>
     <MudPaper Class="pa-2" Elevation="4" Style="position: sticky; bottom: 56px;">
         <div class="d-flex gap-2">
-            <MudTextField @bind-Value="_inputText"
-                          Placeholder="Type a command..."
-                          Variant="Variant.Outlined"
-                          FullWidth="true"
-                          Immediate="true"
-                          OnKeyDown="OnKeyDown"
-                          Class="flex-grow-1" />
-            <MudIconButton Icon="@Icons.Material.Filled.Send"
-                           Color="Color.Primary"
-                           Disabled="@string.IsNullOrWhiteSpace(_inputText)"
-                           OnClick="OnSend" />
+            <MudTextField @bind-Value="_inputText" Placeholder="Type a command..." Variant="Variant.Outlined"
+                          FullWidth="true" Immediate="true" OnKeyDown="OnKeyDown" Class="flex-grow-1" />
+            <MudIconButton Icon="@Icons.Material.Filled.Send" Color="Color.Primary"
+                           Disabled="@string.IsNullOrWhiteSpace(_inputText)" OnClick="OnSend" />
         </div>
     </MudPaper>
 </div>

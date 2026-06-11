@@ -5,8 +5,7 @@
     <MudGrid Spacing="0" Justify="Justify.SpaceAround" Class="align-center" Style="width:100%">
         <MudItem>
             <MudIconButton Icon="@Icons.Material.Filled.TaskAlt"
-                           Color="@(IsActive("/") ? Color.Primary : Color.Default)"
-                           OnClick="@(() => Nav.NavigateTo("/"))" />
+                           Color="@(IsActive("/") ? Color.Primary : Color.Default)" OnClick="@(() => Nav.NavigateTo("/"))" />
         </MudItem>
         <MudItem>
             <MudIconButton Icon="@Icons.Material.Filled.Chat"
