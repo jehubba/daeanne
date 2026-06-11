@@ -152,7 +152,8 @@ public class CopilotCliDispatcher(
         if (_config.ShowAgentWindow)
             psi = BuildWindowedProcess(psi, agentName, prompt, workDir);
 
-        return await RunProcessAsync(task.Id, psi, workDir, ct);
+        var timeoutOverride = _config.GetTimeoutMinutes(task.Type);
+        return await RunProcessAsync(task.Id, psi, workDir, ct, timeoutOverride);
     }
 
     // ─── Shared process runner ────────────────────────────────────────────────
@@ -165,18 +166,22 @@ public class CopilotCliDispatcher(
     private static string StripAnsi(string s) => AnsiEscapeRegex.Replace(s, "");
 
     private async Task<DispatchResult> RunProcessAsync(
-        Guid taskId, ProcessStartInfo psi, string workDir, CancellationToken ct)
+        Guid taskId, ProcessStartInfo psi, string workDir, CancellationToken ct,
+        int? timeoutMinutesOverride = null)
     {
+        var timeoutMinutes = timeoutMinutesOverride ?? _config.TaskTimeoutMinutes;
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeoutCts.CancelAfter(TimeSpan.FromMinutes(_config.TaskTimeoutMinutes));
+        timeoutCts.CancelAfter(TimeSpan.FromMinutes(timeoutMinutes));
 
+        Process? process = null;
         try
         {
             var cmdLine = psi.FileName + " " + string.Join(" ",
                 psi.ArgumentList.Select(a => a.Contains(' ') ? $"\"{a}\"" : a));
-            logger.LogInformation("Task {TaskId}: launching: {CmdLine}", taskId, cmdLine);
+            logger.LogInformation("Task {TaskId}: launching (timeout={Min}m): {CmdLine}",
+                taskId, timeoutMinutes, cmdLine);
 
-            using var process = Process.Start(psi)
+            process = Process.Start(psi)
                 ?? throw new InvalidOperationException("Failed to start copilot process.");
 
             string rawStdout = string.Empty, stderr = string.Empty;
@@ -253,17 +258,37 @@ public class CopilotCliDispatcher(
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
+            KillProcessTree(process, taskId, "cancelled");
             return new DispatchResult(false, null, "Dispatch was cancelled.");
         }
         catch (OperationCanceledException)
         {
-            logger.LogWarning("Task {TaskId} timed out after {Min} minutes.", taskId, _config.TaskTimeoutMinutes);
-            return new DispatchResult(false, null, $"Task timed out after {_config.TaskTimeoutMinutes} minutes.");
+            KillProcessTree(process, taskId, "timed out");
+            logger.LogWarning("Task {TaskId} timed out after {Min} minutes.", taskId, timeoutMinutes);
+            return new DispatchResult(false, null, $"Task timed out after {timeoutMinutes} minutes.");
         }
         catch (Exception ex)
         {
+            KillProcessTree(process, taskId, "errored");
             logger.LogError(ex, "Unexpected error dispatching task {TaskId}", taskId);
             return new DispatchResult(false, null, ex.Message);
+        }
+    }
+
+    private void KillProcessTree(Process? process, Guid taskId, string reason)
+    {
+        if (process is null) return;
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+                logger.LogInformation("Task {TaskId}: killed process tree ({Reason}).", taskId, reason);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Task {TaskId}: failed to kill process tree ({Reason}).", taskId, reason);
         }
     }
 

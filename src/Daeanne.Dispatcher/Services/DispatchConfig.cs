@@ -30,6 +30,16 @@ public class DispatchConfig
     /// <summary>Maximum minutes a dispatched task may run before being timed out.</summary>
     public int TaskTimeoutMinutes { get; set; } = 10;
 
+    /// <summary>
+    /// Per-task-type timeout overrides. Keys are AgentTaskType names (e.g. "Research").
+    /// Takes precedence over TaskTimeoutMinutes for matching task types.
+    /// </summary>
+    public Dictionary<string, int> TaskTimeoutMinutesByType { get; set; } = new();
+
+    /// <summary>Returns the effective timeout for a given task type.</summary>
+    public int? GetTimeoutMinutes(AgentTaskType type) =>
+        TaskTimeoutMinutesByType.TryGetValue(type.ToString(), out var t) ? t : null;
+
     /// <summary>Maximum number of tasks that may run concurrently.</summary>
     public int MaxConcurrency { get; set; } = 3;
 
