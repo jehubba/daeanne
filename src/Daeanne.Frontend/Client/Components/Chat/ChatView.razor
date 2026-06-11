@@ -2,12 +2,6 @@
 
 <div class="d-flex flex-column" style="height: calc(100vh - 120px);">
     <div class="flex-grow-1 overflow-auto pa-2" @ref="_scrollContainer">
-        @if (!Messages.Any())
-        {
-            <MudAlert Severity="Severity.Info" Class="ma-4">
-                Send a command to Daeanne to get started.
-            </MudAlert>
-        }
         @foreach (var message in Messages)
         {
             <DaeanneFrontend.Client.Components.Chat.ChatBubble Message="@message" />
