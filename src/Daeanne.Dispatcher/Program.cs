@@ -25,6 +25,16 @@ if (string.IsNullOrWhiteSpace(connStr))
     Directory.CreateDirectory(dbDir);
     connStr = $"Data Source={Path.Combine(dbDir, "dispatcher.db")}";
 }
+else if (!Path.IsPathRooted(connStr) && connStr.Contains("dispatcher.db"))
+{
+    // Guard against the split-brain bug: a relative path like "Data Source=dispatcher.db" resolves
+    // against CWD, producing different DB files depending on how the process was launched.
+    // appsettings.json should always have DispatcherDb="" so the stable %APPDATA% path activates.
+    Console.Error.WriteLine(
+        $"[WARN] DispatcherDb connection string appears to contain a relative path: {connStr}. " +
+        "This may cause split-brain if the process is started from different working directories. " +
+        "Set DispatcherDb to empty string in appsettings.json to use the stable %APPDATA% path.");
+}
 builder.Services.AddDbContext<DispatcherDbContext>(options => options.UseSqlite(connStr));
 
 // Dispatch infrastructure
