@@ -1,5 +1,3 @@
-using System.Text;
-using System.Text.Json;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Azure.Functions.Worker.Middleware;
@@ -13,14 +11,6 @@ public class IdentityGuard : IFunctionsWorkerMiddleware
         "health",
         "get-roles"
     };
-
-    private readonly string _allowedUserId;
-
-    public IdentityGuard()
-    {
-        _allowedUserId = Environment.GetEnvironmentVariable("ALLOWED_USER_OID")
-            ?? throw new InvalidOperationException("ALLOWED_USER_OID environment variable is required");
-    }
 
     public async Task Invoke(FunctionContext context, FunctionExecutionDelegate next)
     {
@@ -40,37 +30,10 @@ public class IdentityGuard : IFunctionsWorkerMiddleware
             return;
         }
 
-        if (!requestData.Headers.TryGetValues("x-ms-client-principal", out var headerValues))
-        {
-            var response = requestData.CreateResponse(System.Net.HttpStatusCode.Forbidden);
-            await response.WriteStringAsync("Forbidden");
-            SetHttpResponseData(context, response);
-            return;
-        }
-
-        var principalHeader = headerValues.FirstOrDefault();
-        if (string.IsNullOrEmpty(principalHeader))
-        {
-            var response = requestData.CreateResponse(System.Net.HttpStatusCode.Forbidden);
-            await response.WriteStringAsync("Forbidden");
-            SetHttpResponseData(context, response);
-            return;
-        }
-
-        try
-        {
-            var decoded = Encoding.UTF8.GetString(Convert.FromBase64String(principalHeader));
-            var principal = JsonSerializer.Deserialize<ClientPrincipal>(decoded);
-
-            if (principal is null || !string.Equals(principal.UserId, _allowedUserId, StringComparison.OrdinalIgnoreCase))
-            {
-                var response = requestData.CreateResponse(System.Net.HttpStatusCode.Forbidden);
-                await response.WriteStringAsync("Forbidden");
-                SetHttpResponseData(context, response);
-                return;
-            }
-        }
-        catch
+        // SWA already enforces role-based auth via staticwebapp.config.json (admin role required).
+        // We only verify the principal header exists — confirming the request came through SWA.
+        if (!requestData.Headers.TryGetValues("x-ms-client-principal", out var headerValues)
+            || string.IsNullOrEmpty(headerValues.FirstOrDefault()))
         {
             var response = requestData.CreateResponse(System.Net.HttpStatusCode.Forbidden);
             await response.WriteStringAsync("Forbidden");
@@ -86,10 +49,4 @@ public class IdentityGuard : IFunctionsWorkerMiddleware
         var invocationResult = context.GetInvocationResult();
         invocationResult.Value = response;
     }
-
-    private record ClientPrincipal(
-        string? IdentityProvider,
-        string? UserId,
-        string? UserDetails,
-        string[]? UserRoles);
 }
