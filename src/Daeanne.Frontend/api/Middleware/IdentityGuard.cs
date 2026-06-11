@@ -10,7 +10,8 @@ public class IdentityGuard : IFunctionsWorkerMiddleware
 {
     private static readonly HashSet<string> AnonymousFunctions = new(StringComparer.OrdinalIgnoreCase)
     {
-        "health"
+        "health",
+        "get-roles"
     };
 
     private readonly string _allowedUserId;
