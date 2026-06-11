@@ -64,7 +64,7 @@ Jeffrey taps on a completed task to view its full output — a research report, 
 
 1. **Given** a completed task in the list, **When** Jeffrey taps it, **Then** the full task output displays in a scrollable, readable view
 2. **Given** the output view on a 390px-wide viewport, **When** Jeffrey reads the content, **Then** no horizontal scrolling or zooming is required
-3. **Given** a long output (research report), **When** Jeffrey scrolls, **Then** the content loads progressively without blocking the UI
+3. **Given** a long output (research report), **When** Jeffrey scrolls, **Then** the content is fully scrollable without blocking the UI (fetched asynchronously so the overlay opens immediately)
 
 ---
 
@@ -95,7 +95,7 @@ Jeffrey installs the app to his phone home screen. It launches without browser c
 
 1. **Given** Jeffrey visits the app in a mobile browser, **When** he adds it to his home screen, **Then** it installs as a PWA and launches without browser chrome
 2. **Given** a 390px-wide viewport (iPhone SE), **When** Jeffrey uses any feature, **Then** the UI is fully functional without zooming or horizontal scrolling
-3. **Given** a slow mobile connection (3G-equivalent), **When** Jeffrey loads the app, **Then** the task list appears within a reasonable time with lazy-loaded content
+3. **Given** a slow mobile connection (3G-equivalent), **When** Jeffrey loads the app, **Then** the task list appears within 2 seconds per SC-004, with lazy-loaded content
 
 ---
 
