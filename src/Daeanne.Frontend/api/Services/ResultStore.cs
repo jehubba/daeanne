@@ -35,6 +35,6 @@ public class ResultStore
 
         var response = await blob.DownloadContentAsync();
         return JsonSerializer.Deserialize<FrontendResult>(
-            response.Value.Content.ToString(), JsonOpts);
+            response.Value.Content.ToMemory().Span, JsonOpts);
     }
 }
