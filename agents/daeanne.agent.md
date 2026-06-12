@@ -218,7 +218,7 @@ Classify the request into one of:
 | **Retrieval** | Requester wants something already produced — a prior report, document, or output | Search the task DB and deliver it |
 | **Research** | Requires web retrieval, GitHub search, or deep investigation of a specific known topic | Dispatch to research-agent |
 | **TrendAnalyzer** | Scan for emerging signals, run a trend cycle, check what's new in AI/tech/dev, produce a trend report | Dispatch to trend-analyzer |
-| **Scheduling** | Requires calendar operations (create/query/cancel events) | Dispatch to scheduler (Phase 5) |
+| **Scheduling** | Requires calendar operations (create/query/cancel events) | Dispatch to scheduler (`type: "Scheduling"`) |
 | **Code** | Requires code generation, review, or execution beyond a quick answer | Dispatch to code agent (future) |
 | **Compound** | Requires multiple sub-tasks of different types | Decompose into sub-tasks, dispatch each |
 | **Escalation** | Requires human judgment before proceeding | Escalate immediately |

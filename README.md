@@ -28,6 +28,15 @@ cd ..\research-agent
 . .\scripts\setup-symlinks.ps1
 ```
 
+### Calendar MCP setup (M365)
+
+Scheduler tasks use the Microsoft 365 Calendar MCP server.
+
+1. Copy or open `.vscode/mcp.json`
+2. Provide your Entra tenant ID when prompted (`tenant_id`)
+3. Ensure the app registration used for Graph has calendar access (`Calendars.ReadWrite`)
+4. Run setup so `scheduler.agent.md` is linked into `~/.copilot/agents/`
+
 ## Principal Preferences Memory
 
 Daeanne maintains principal calibration preferences in:

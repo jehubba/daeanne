@@ -5,8 +5,9 @@
 #
 # What this does:
 #   1. Creates ~/.copilot/agents/daeanne.agent.md symlink
-#   2. (Phase 1+) Installs Daeanne.Dispatcher as Windows Service
-#   3. (Phase 1+) Installs Daeanne.Bridge as Windows Service
+#   2. Creates ~/.copilot/agents/scheduler.agent.md symlink
+#   3. (Phase 1+) Installs Daeanne.Dispatcher as Windows Service
+#   4. (Phase 1+) Installs Daeanne.Bridge as Windows Service
 
 $ErrorActionPreference = "Stop"
 
@@ -33,6 +34,7 @@ function Set-AgentSymlink($name) {
 }
 
 Set-AgentSymlink "daeanne"
+Set-AgentSymlink "scheduler"
 
 Write-Host ""
 Write-Host "Daeanne agent symlink configured."
