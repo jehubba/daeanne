@@ -79,26 +79,31 @@ public class FrontendRelayWorker : BackgroundService
                     Encoding.UTF8,
                     "application/json");
 
-                var response = await client.PostAsync($"{dispatcherUrl}/tasks", content, stoppingToken);
-                var responseBody = await response.Content.ReadAsStringAsync(stoppingToken);
+                var createResponse = await client.PostAsync($"{dispatcherUrl}/tasks", content, stoppingToken);
+                var createBody = await createResponse.Content.ReadAsStringAsync(stoppingToken);
 
-                FrontendResult result;
-                if (response.IsSuccessStatusCode)
+                if (!createResponse.IsSuccessStatusCode)
                 {
-                    result = new FrontendResult(request.CorrelationId, true, responseBody);
-                }
-                else
-                {
-                    result = new FrontendResult(request.CorrelationId, false,
-                        Error: $"Dispatcher returned {(int)response.StatusCode}: {responseBody}");
+                    var errorResult = new FrontendResult(request.CorrelationId, false,
+                        Error: $"Dispatcher returned {(int)createResponse.StatusCode}: {createBody}");
+                    await SendResultAsync(resultSender, errorResult, stoppingToken);
+                    await args.CompleteMessageAsync(args.Message, stoppingToken);
+                    return;
                 }
 
-                // Send result to the results queue
-                var resultMessage = new ServiceBusMessage(JsonSerializer.Serialize(result, JsonOpts));
-                await resultSender.SendMessageAsync(resultMessage, stoppingToken);
+                // Extract task ID from the creation response
+                var createdTask = JsonSerializer.Deserialize<JsonElement>(createBody, JsonOpts);
+                var taskId = createdTask.GetProperty("id").GetString();
+
+                _logger.LogInformation("Task created: {TaskId} for {CorrelationId}", taskId, request.CorrelationId);
+
+                // Poll for task completion (up to 10 minutes)
+                var result = await PollForCompletionAsync(client, dispatcherUrl, taskId!, request.CorrelationId, stoppingToken);
+
+                await SendResultAsync(resultSender, result, stoppingToken);
                 await args.CompleteMessageAsync(args.Message, stoppingToken);
 
-                _logger.LogInformation("FrontendRequest {CorrelationId} processed. Succeeded={Succeeded}",
+                _logger.LogInformation("FrontendRequest {CorrelationId} completed. Succeeded={Succeeded}",
                     request.CorrelationId, result.Succeeded);
             }
             catch (Exception ex)
@@ -115,5 +120,54 @@ public class FrontendRelayWorker : BackgroundService
 
         await processor.StartProcessingAsync(stoppingToken);
         await Task.Delay(Timeout.Infinite, stoppingToken);
+    }
+
+    private static readonly HashSet<string> TerminalStatuses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Succeeded", "Partial", "Failed", "TimedOut", "Escalated"
+    };
+
+    private async Task<FrontendResult> PollForCompletionAsync(
+        HttpClient client, string dispatcherUrl, string taskId, string correlationId,
+        CancellationToken ct)
+    {
+        var deadline = DateTime.UtcNow.AddMinutes(10);
+
+        while (DateTime.UtcNow < deadline && !ct.IsCancellationRequested)
+        {
+            await Task.Delay(3000, ct);
+
+            try
+            {
+                var response = await client.GetAsync($"{dispatcherUrl}/tasks/{taskId}", ct);
+                if (!response.IsSuccessStatusCode) continue;
+
+                var body = await response.Content.ReadAsStringAsync(ct);
+                var task = JsonSerializer.Deserialize<JsonElement>(body, JsonOpts);
+
+                var status = task.GetProperty("status").GetString() ?? "";
+
+                if (!TerminalStatuses.Contains(status)) continue;
+
+                var resultJson = task.TryGetProperty("resultJson", out var rj) ? rj.GetString() : null;
+                var error = task.TryGetProperty("error", out var err) ? err.GetString() : null;
+                var succeeded = status is "Succeeded" or "Partial";
+
+                return new FrontendResult(correlationId, succeeded, resultJson, error);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Poll failed for task {TaskId}", taskId);
+            }
+        }
+
+        return new FrontendResult(correlationId, false,
+            Error: "Task did not complete within 10 minutes.");
+    }
+
+    private static async Task SendResultAsync(ServiceBusSender sender, FrontendResult result, CancellationToken ct)
+    {
+        var message = new ServiceBusMessage(JsonSerializer.Serialize(result, JsonOpts));
+        await sender.SendMessageAsync(message, ct);
     }
 }
