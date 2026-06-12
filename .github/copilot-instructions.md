@@ -14,6 +14,7 @@ The contract between every producer and consumer is documented in `docs/contract
 **Read `docs/contracts.md` before modifying any code that crosses a service boundary.**
 
 Rules:
+
 1. When changing a request/response shape, serialization format, field name, field type,
    or envelope structure on **any** side, update `docs/contracts.md` and **all** consuming
    and producing code in the same commit.
