@@ -4,13 +4,8 @@
       "command": "cmd",
       "args": [
         "/c",
-        "npx",
-        "-y",
-        "@modelcontextprotocol/server-memory"
-      ],
-      "env": {
-        "MEMORY_FILE_PATH": "${env:APPDATA}\\daeanne\\memory\\knowledge-graph.jsonl"
-      }
+        "set \"MEMORY_FILE_PATH=%APPDATA%\\daeanne\\memory\\knowledge-graph.jsonl\" && npx -y @modelcontextprotocol/server-memory"
+      ]
     }
   }
 }
