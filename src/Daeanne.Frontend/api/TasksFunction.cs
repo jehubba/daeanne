@@ -49,8 +49,8 @@ public class TasksFunction
 
     [Function("taskDetail")]
     public async Task<IActionResult> GetTask(
-        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "tasks/{id:int}")] HttpRequest req,
-        int id)
+        [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "tasks/{id}")] HttpRequest req,
+        string id)
     {
         try
         {

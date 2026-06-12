@@ -1,7 +1,7 @@
 namespace DaeanneFrontend.Shared;
 
 public record TaskDto(
-    int Id,
+    string Id,
     string Type,
     string Topic,
     string Status,

@@ -61,7 +61,7 @@
 
 @code {
     [Parameter, EditorRequired]
-    public int TaskId { get; set; }
+    public string TaskId { get; set; } = string.Empty;
 
     [Parameter]
     public EventCallback OnClose { get; set; }

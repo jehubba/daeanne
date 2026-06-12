@@ -20,7 +20,7 @@ public class DaeanneApiClient
         return (result?.Tasks ?? [], result?.Total ?? 0);
     }
 
-    public async Task<TaskDto?> GetTaskAsync(int id, CancellationToken ct = default)
+    public async Task<TaskDto?> GetTaskAsync(string id, CancellationToken ct = default)
     {
         var response = await _http.GetAsync($"api/tasks/{id}", ct);
         if (!response.IsSuccessStatusCode) return null;
