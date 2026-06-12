@@ -195,6 +195,60 @@ Same chain as task list but for a single task.
 
 ---
 
+## 6. MCP Wrapper (MCP Client → Dispatcher HTTP)
+
+The local MCP wrapper (`scripts/daeanne_dispatcher_mcp.py`) is a thin client over Dispatcher APIs.
+It reads the Dispatcher API key from `~/.daeanne/secrets/dispatcher-api-key.txt` and sends:
+
+- Header: `X-Daeanne-Key: <api-key>`
+
+### Tool: `dispatch_task(type, prompt)`
+
+- HTTP: `POST /tasks`
+- Request JSON:
+```json
+{ "type": "string (AgentTaskType)", "prompt": "string" }
+```
+- Response JSON includes:
+```json
+{ "task_id": "guid-string", "task": { "...raw AgentTask..." } }
+```
+
+### Tool: `get_task_status(task_id)`
+
+- HTTP: `GET /tasks/{id}`
+- Response JSON includes:
+```json
+{ "status": "string (AgentTaskStatus)", "resultJson": "string | null", "task": { "...raw AgentTask..." } }
+```
+
+### Tool: `list_tasks(status?, take?)`
+
+- HTTP: `GET /tasks?status={status}&take={take}`
+- Response JSON: raw Dispatcher task array (`AgentTask[]`).
+
+### Tool: `send_email(to, subject, body)`
+
+- HTTP: `POST /outbox/email`
+- Request JSON:
+```json
+{ "to": "string", "subject": "string", "body": "string" }
+```
+- Response JSON includes:
+```json
+{ "email_id": "guid-string", "email": { "...raw OutboxEmail..." } }
+```
+
+### Tool: `health_check()`
+
+- HTTP: `GET /health`
+- Response JSON:
+```json
+{ "status": "ok", "service": "Daeanne.Dispatcher", "timestamp": "datetime" }
+```
+
+---
+
 ## Shared Types Reference
 
 | Type | Location | Used By |

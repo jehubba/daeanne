@@ -28,6 +28,24 @@ cd ..\research-agent
 . .\scripts\setup-symlinks.ps1
 ```
 
+## MCP Server Wrapper (Dispatcher API)
+
+Run the local MCP wrapper to expose Dispatcher endpoints as MCP tools:
+
+```bash
+python -m pip install -r scripts/requirements-mcp.txt
+python scripts/daeanne_dispatcher_mcp.py
+```
+
+The wrapper reads the Dispatcher API key from:
+
+- `~/.daeanne/secrets/dispatcher-api-key.txt`
+
+Optional overrides:
+
+- `DAEANNE_DISPATCHER_URL` (default: `http://127.0.0.1:47777`)
+- `DAEANNE_DISPATCHER_KEY_FILE` (default shown above)
+
 ## Principal Preferences Memory
 
 Daeanne maintains principal calibration preferences in:
