@@ -1,0 +1,15 @@
+{
+  "servers": {
+    "agent365-calendartools": {
+      "type": "http",
+      "url": "https://agent365.svc.cloud.microsoft/agents/tenants/${input:tenant_id}/servers/mcp_CalendarTools"
+    }
+  },
+  "inputs": [
+    {
+      "id": "tenant_id",
+      "type": "promptString",
+      "description": "Microsoft Entra tenant ID (GUID)"
+    }
+  ]
+}
