@@ -153,7 +153,10 @@ public class FrontendRelayWorker : BackgroundService
                 var error = task.TryGetProperty("error", out var err) ? err.GetString() : null;
                 var succeeded = status is "Succeeded" or "Partial";
 
-                return new FrontendResult(correlationId, succeeded, resultJson, error);
+                // ResultJson is often a JSON object — extract a readable response string
+                var responseText = ExtractResponseText(resultJson);
+
+                return new FrontendResult(correlationId, succeeded, responseText, error);
             }
             catch (Exception ex)
             {
@@ -163,6 +166,40 @@ public class FrontendRelayWorker : BackgroundService
 
         return new FrontendResult(correlationId, false,
             Error: "Task did not complete within 10 minutes.");
+    }
+
+    /// <summary>
+    /// ResultJson from the Dispatcher can be a JSON object like {"response":"..."} or a plain string.
+    /// Extract the most useful human-readable text.
+    /// </summary>
+    private static string? ExtractResponseText(string? resultJson)
+    {
+        if (string.IsNullOrWhiteSpace(resultJson)) return null;
+
+        try
+        {
+            var doc = JsonDocument.Parse(resultJson);
+            var root = doc.RootElement;
+
+            // Try common response field names
+            foreach (var field in new[] { "response", "result", "message", "summary", "output" })
+            {
+                if (root.TryGetProperty(field, out var prop) && prop.ValueKind == JsonValueKind.String)
+                    return prop.GetString();
+            }
+
+            // If it's a simple string value at root, use it
+            if (root.ValueKind == JsonValueKind.String)
+                return root.GetString();
+
+            // Fall back to the full JSON
+            return resultJson;
+        }
+        catch (JsonException)
+        {
+            // Not valid JSON — treat as plain text
+            return resultJson;
+        }
     }
 
     private static async Task SendResultAsync(ServiceBusSender sender, FrontendResult result, CancellationToken ct)
