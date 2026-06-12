@@ -21,6 +21,7 @@ public class DispatcherDbContext(DbContextOptions<DispatcherDbContext> options) 
             e.HasIndex(t => t.Status);
             e.HasIndex(t => t.CreatedAt);
             e.HasIndex(t => t.CorrelationId);
+            e.HasIndex(t => t.DependsOnTaskId);  // for fast dependent-task lookup on completion
         });
 
         modelBuilder.Entity<OutboxEmail>(e =>

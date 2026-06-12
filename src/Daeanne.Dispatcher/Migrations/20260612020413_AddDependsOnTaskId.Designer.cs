@@ -3,6 +3,7 @@ using System;
 using Daeanne.Dispatcher.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Daeanne.Dispatcher.Migrations
 {
     [DbContext(typeof(DispatcherDbContext))]
-    partial class DispatcherDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260612020413_AddDependsOnTaskId")]
+    partial class AddDependsOnTaskId
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.27");

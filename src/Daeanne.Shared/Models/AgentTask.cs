@@ -77,4 +77,10 @@ public class AgentTask
 
     /// <summary>Timestamp when this task was promoted from a dormant state to Pending.</summary>
     public DateTime? PromotedAt { get; set; }
+
+    /// <summary>
+    /// When set, this task is held as Blocked until the upstream task with this ID reaches Succeeded.
+    /// The Dispatcher automatically promotes this task to Pending when the upstream task succeeds.
+    /// </summary>
+    public Guid? DependsOnTaskId { get; set; }
 }

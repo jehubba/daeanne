@@ -50,4 +50,11 @@ public class CreateTaskRequest
     /// When null (default), the task is created as Pending and immediately enqueued.
     /// </summary>
     public AgentTaskStatus? InitialStatus { get; set; }
+
+    /// <summary>
+    /// When set, the created task will be held as Blocked until the upstream task with this ID
+    /// reaches Succeeded. The Dispatcher auto-promotes this task to Pending at that point.
+    /// If the upstream task is already Succeeded at creation time, the task is created as Pending immediately.
+    /// </summary>
+    public Guid? DependsOnTaskId { get; set; }
 }

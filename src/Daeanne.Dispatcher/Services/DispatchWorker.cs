@@ -114,6 +114,8 @@ public class DispatchWorker(
                         "Task {TaskId} process exited cleanly but task was still Running — " +
                         "auto-finalized as Succeeded. Agent should call PATCH /tasks/{TaskId}/status before exit.",
                         taskId, taskId);
+
+                    await TaskEndpoints.UnblockDependentsAsync(t.Id, db, queue, _config, logger);
                 }
             }
             else

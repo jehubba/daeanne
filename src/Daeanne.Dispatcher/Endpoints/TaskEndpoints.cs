@@ -115,6 +115,21 @@ public static class TaskEndpoints
                     $"Use the default (omit InitialStatus) to create a task that dispatches immediately.");
         }
 
+        // Validate DependsOnTaskId — resolve initial status based on upstream state
+        if (request.DependsOnTaskId.HasValue)
+        {
+            var upstream = await db.Tasks.FindAsync([request.DependsOnTaskId.Value], ct);
+            if (upstream is null)
+                return Results.BadRequest($"DependsOnTaskId {request.DependsOnTaskId} does not exist.");
+
+            // If upstream is already Succeeded, treat as no dependency — start immediately
+            // If upstream is not yet Succeeded, force Blocked regardless of InitialStatus
+            if (upstream.Status != AgentTaskStatus.Succeeded)
+                request.InitialStatus = AgentTaskStatus.Blocked;
+            else
+                request.DependsOnTaskId = null; // upstream done — no need to track
+        }
+
         // Idempotency: if a non-terminal task with this correlationId already exists, return it
         if (!string.IsNullOrWhiteSpace(request.CorrelationId))
         {
@@ -159,6 +174,7 @@ public static class TaskEndpoints
             ScheduledJobId = request.ScheduledJobId,
             ParentTaskId   = request.ParentTaskId,
             SessionName    = request.SessionName,
+            DependsOnTaskId = request.DependsOnTaskId,
             Status         = request.InitialStatus ?? AgentTaskStatus.Pending
         };
 
@@ -276,6 +292,10 @@ public static class TaskEndpoints
         if (task.ParentTaskId.HasValue)
             await TriggerParentResumeAsync(task, db, queue, dispatchConfig.Value, logger);
 
+        // Unblock any tasks waiting on this one
+        if (newStatus == AgentTaskStatus.Succeeded)
+            await UnblockDependentsAsync(task.Id, db, queue, dispatchConfig.Value, logger);
+
         return Results.Ok(task);
     }
 
@@ -345,6 +365,56 @@ public static class TaskEndpoints
     }
 
     // ─── Shared helpers ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// After a task reaches Succeeded, find all tasks blocked on it via DependsOnTaskId
+    /// and promote them to Pending for immediate dispatch.
+    /// </summary>
+    internal static async Task UnblockDependentsAsync(
+        Guid succeededTaskId,
+        DispatcherDbContext db,
+        Channel<Guid> queue,
+        DispatchConfig config,
+        ILogger logger)
+    {
+        var dependents = await db.Tasks
+            .Where(t => t.DependsOnTaskId == succeededTaskId &&
+                        (t.Status == AgentTaskStatus.Blocked || t.Status == AgentTaskStatus.Deferred))
+            .ToListAsync();
+
+        if (dependents.Count == 0) return;
+
+        foreach (var dep in dependents)
+        {
+            // Move task dir from blocked/deferred → active/
+            var workDir = TaskDirManager.FindTaskDir(config.ResolvedWorkDir, dep.Id);
+            if (workDir is not null)
+            {
+                var activeDir = TaskDirManager.ActivePath(config.ResolvedWorkDir, dep.Id, dep.IsScheduled);
+                if (!workDir.Equals(activeDir, StringComparison.OrdinalIgnoreCase))
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(activeDir)!);
+                    try { Directory.Move(workDir, activeDir); }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "UnblockDependents: could not move dir for task {Id} — promoting anyway.", dep.Id);
+                    }
+                }
+            }
+
+            dep.Status          = AgentTaskStatus.Pending;
+            dep.PromotedAt      = DateTime.UtcNow;
+            dep.UpdatedAt       = DateTime.UtcNow;
+            dep.DependsOnTaskId = null; // dependency satisfied — clear it
+            await queue.Writer.WriteAsync(dep.Id);
+
+            logger.LogInformation(
+                "Task {DepId} unblocked → Pending (upstream {UpstreamId} succeeded).",
+                dep.Id, succeededTaskId);
+        }
+
+        await db.SaveChangesAsync();
+    }
 
     /// <summary>
     /// Called after a sub-task reaches a terminal state (via natural process exit or PostResult).
