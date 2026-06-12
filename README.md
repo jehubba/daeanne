@@ -28,6 +28,28 @@ cd ..\research-agent
 . .\scripts\setup-symlinks.ps1
 ```
 
+## MCP Memory Server
+
+Daeanne now includes repository MCP configuration for the Anthropic reference
+Memory server (`@modelcontextprotocol/server-memory`) so MCP-capable clients
+can share persistent knowledge across sessions.
+
+- Copilot CLI config: `.github/mcp.json`
+- VS Code MCP config: `.vscode/mcp.json`
+- Persistent store path: `%APPDATA%\daeanne\memory\knowledge-graph.jsonl`
+
+Setup creates `%APPDATA%\daeanne\memory` automatically.
+
+### Migration path from existing memory files
+
+`preferences.json` and journal files remain the source of record for preference
+and narrative notes. The MCP memory graph complements them:
+
+- Keep writing structured preferences to `%APPDATA%\daeanne\preferences.json`
+- Keep journaling in `%USERPROFILE%\.daeanne\journal\`
+- Gradually promote durable facts/relations from those files into MCP memory
+  as entities, observations, and relations
+
 ## Principal Preferences Memory
 
 Daeanne maintains principal calibration preferences in:

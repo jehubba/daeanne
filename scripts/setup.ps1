@@ -5,8 +5,9 @@
 #
 # What this does:
 #   1. Creates ~/.copilot/agents/daeanne.agent.md symlink
-#   2. (Phase 1+) Installs Daeanne.Dispatcher as Windows Service
-#   3. (Phase 1+) Installs Daeanne.Bridge as Windows Service
+#   2. Creates %APPDATA%\daeanne\memory directory for MCP memory persistence
+#   3. (Phase 1+) Installs Daeanne.Dispatcher as Windows Service
+#   4. (Phase 1+) Installs Daeanne.Bridge as Windows Service
 
 $ErrorActionPreference = "Stop"
 
@@ -34,8 +35,13 @@ function Set-AgentSymlink($name) {
 
 Set-AgentSymlink "daeanne"
 
+$memoryDir = Join-Path $env:APPDATA "daeanne\memory"
+New-Item -ItemType Directory -Path $memoryDir -Force | Out-Null
+Write-Host "MCP memory directory ready: $memoryDir"
+
 Write-Host ""
 Write-Host "Daeanne agent symlink configured."
+Write-Host "MCP memory server config is in .github/mcp.json (Copilot CLI) and .vscode/mcp.json (VS Code)."
 Write-Host "Also run setup in the research-agent repo if not already done:"
 Write-Host "  cd ..\research-agent && . .\scripts\setup-symlinks.ps1"
 Write-Host ""
