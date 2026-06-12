@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import atexit
 import os
 
 import httpx
@@ -9,20 +10,33 @@ DISPATCHER_URL = os.getenv("DAEANNE_DISPATCHER_URL", "http://127.0.0.1:47777").r
 KEY_FILE = Path(
     os.getenv("DAEANNE_DISPATCHER_KEY_FILE", "~/.daeanne/secrets/dispatcher-api-key.txt")
 ).expanduser()
+_CLIENT: httpx.Client | None = None
 
 
 def _headers() -> dict[str, str]:
-    api_key = KEY_FILE.read_text(encoding="utf-8").strip()
+    try:
+        api_key = KEY_FILE.read_text(encoding="utf-8").strip()
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            f"Dispatcher API key file not found: {KEY_FILE}. "
+            "Create this file or set DAEANNE_DISPATCHER_KEY_FILE."
+        ) from exc
     if not api_key:
         raise RuntimeError(f"Dispatcher API key file is empty: {KEY_FILE}")
     return {"X-Daeanne-Key": api_key}
 
 
+def _client() -> httpx.Client:
+    global _CLIENT
+    if _CLIENT is None:
+        _CLIENT = httpx.Client(base_url=DISPATCHER_URL, timeout=30.0)
+    return _CLIENT
+
+
 def _request(method: str, path: str, **kwargs) -> dict | list:
-    with httpx.Client(base_url=DISPATCHER_URL, timeout=30.0, headers=_headers()) as client:
-        response = client.request(method, path, **kwargs)
-        response.raise_for_status()
-        return response.json() if response.content else {}
+    response = _client().request(method, path, headers=_headers(), **kwargs)
+    response.raise_for_status()
+    return response.json() if response.content else {}
 
 
 mcp = FastMCP("daeanne-dispatcher")
@@ -60,4 +74,5 @@ def health_check() -> dict:
 
 
 if __name__ == "__main__":
+    atexit.register(lambda: _CLIENT.close() if _CLIENT is not None else None)
     mcp.run()
