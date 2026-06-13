@@ -475,6 +475,12 @@ public class GraphMailWorker(
         Your task is to process this email on behalf of Jeffrey per your standing instructions.
         """;
 
+    /// <summary>
+    /// Sends a new email via the Graph JSON sendMail API.
+    /// Using JSON (not raw MIME) because Graph on consumer Outlook.com accounts overrides
+    /// MIME headers (From, Reply-To) regardless of what we write. The JSON 'replyTo'
+    /// property is a structured routing field that Graph respects separately from 'from'.
+    /// </summary>
     private async Task<HttpResponseMessage> SendMultipartEmailAsync(
         HttpClient graphHttp,
         OutboxEmail email,
@@ -482,30 +488,31 @@ public class GraphMailWorker(
         string mailAddress,
         CancellationToken ct)
     {
-        var mime = BuildMultipartAlternativeMime(
-            from:     mailAddress,
-            to:       email.To,
-            subject:  email.Subject,
-            plainText: body.PlainText,
-            html:     body.Html,
-            replyTo:  mailAddress);
+        var payload = new
+        {
+            message = new
+            {
+                subject = email.Subject,
+                body = new { contentType = "HTML", content = body.Html },
+                toRecipients = new[] { new { emailAddress = new { address = email.To } } },
+                replyTo = new[] { new { emailAddress = new { address = mailAddress } } }
+            },
+            saveToSentItems = true
+        };
 
+        var json = JsonSerializer.Serialize(payload);
         return await graphHttp.PostAsync(
             $"{GraphBase}/me/sendMail",
-            new StringContent(ToGraphMimePayload(mime), Encoding.UTF8, "text/plain"),
+            new StringContent(json, Encoding.UTF8, "application/json"),
             ct);
     }
 
     /// <summary>
-    /// Sends a threaded reply using raw MIME via /sendMail.
-    ///
-    /// The prior createReply → PATCH → send approach set the correct From address
-    /// in theory, but Graph silently ignores the 'from' PATCH on consumer Outlook.com
-    /// accounts and sends from the account's default alias instead.
-    ///
-    /// Raw MIME via /sendMail honours the From: header unconditionally. We recover
-    /// threading (In-Reply-To + References) by fetching the original message's
-    /// internetMessageId and setting those RFC 5322 headers manually.
+    /// Sends a threaded reply via createReply → PATCH → send.
+    /// Graph automatically sets threading headers (In-Reply-To, References) when
+    /// createReply is used — no need to fetch internetMessageId manually.
+    /// We PATCH only the body and replyTo (not from — Graph ignores from on consumer
+    /// accounts to prevent spoofing, but replyTo is routing metadata it respects).
     /// </summary>
     private async Task<HttpResponseMessage> SendMultipartReplyAsync(
         HttpClient graphHttp,
@@ -515,63 +522,42 @@ public class GraphMailWorker(
         string mailAddress,
         CancellationToken ct)
     {
-        // Fetch original message to get internetMessageId for threading headers.
-        string? inReplyTo  = null;
-        string? references = null;
-        try
+        // Step 1: create a reply draft (threading headers set automatically by Graph)
+        var createResp = await graphHttp.PostAsync(
+            $"{GraphBase}/me/messages/{Uri.EscapeDataString(replyToGraphMessageId)}/createReply",
+            new StringContent("{}", Encoding.UTF8, "application/json"),
+            ct);
+
+        if (!createResp.IsSuccessStatusCode)
+            return createResp;
+
+        using var createDoc = JsonDocument.Parse(await createResp.Content.ReadAsStringAsync(ct));
+        var draftId = createDoc.RootElement.GetProperty("id").GetString()!;
+
+        // Step 2: patch the draft — set body and replyTo
+        var patch = new
         {
-            var msgResp = await graphHttp.GetAsync(
-                $"{GraphBase}/me/messages/{Uri.EscapeDataString(replyToGraphMessageId)}" +
-                "?$select=internetMessageId,internetMessageHeaders",
-                ct);
-            if (msgResp.IsSuccessStatusCode)
+            body    = new { contentType = "HTML", content = body.Html },
+            replyTo = new[] { new { emailAddress = new { address = mailAddress } } }
+        };
+
+        var patchResp = await graphHttp.SendAsync(
+            new HttpRequestMessage(new HttpMethod("PATCH"),
+                $"{GraphBase}/me/messages/{Uri.EscapeDataString(draftId)}")
             {
-                using var doc = JsonDocument.Parse(await msgResp.Content.ReadAsStringAsync(ct));
-                var root = doc.RootElement;
+                Content = new StringContent(JsonSerializer.Serialize(patch), Encoding.UTF8, "application/json")
+            }, ct);
 
-                if (root.TryGetProperty("internetMessageId", out var mid))
-                    inReplyTo = mid.GetString();
-
-                // Build References = existing chain + this message id
-                if (root.TryGetProperty("internetMessageHeaders", out var hdrs))
-                {
-                    foreach (var h in hdrs.EnumerateArray())
-                    {
-                        if (h.TryGetProperty("name", out var n) &&
-                            string.Equals(n.GetString(), "References", StringComparison.OrdinalIgnoreCase))
-                        {
-                            var existing = h.TryGetProperty("value", out var v) ? v.GetString() : null;
-                            references   = string.IsNullOrWhiteSpace(existing)
-                                ? inReplyTo
-                                : $"{existing} {inReplyTo}";
-                            break;
-                        }
-                    }
-                }
-
-                references ??= inReplyTo;
-            }
-        }
-        catch (Exception ex)
+        if (!patchResp.IsSuccessStatusCode)
         {
-            logger.LogWarning(ex,
-                "GraphMailWorker: could not fetch original message for threading headers — " +
-                "reply will send without In-Reply-To");
+            logger.LogWarning("GraphMailWorker: PATCH reply draft failed ({Code}) — sending without replyTo",
+                (int)patchResp.StatusCode);
         }
 
-        var mime = BuildMultipartAlternativeMime(
-            from:      mailAddress,
-            to:        email.To,
-            subject:   email.Subject,
-            plainText: body.PlainText,
-            html:      body.Html,
-            inReplyTo: inReplyTo,
-            references: references,
-            replyTo:   mailAddress);
-
+        // Step 3: send the draft
         return await graphHttp.PostAsync(
-            $"{GraphBase}/me/sendMail",
-            new StringContent(ToGraphMimePayload(mime), Encoding.UTF8, "text/plain"),
+            $"{GraphBase}/me/messages/{Uri.EscapeDataString(draftId)}/send",
+            new StringContent("{}", Encoding.UTF8, "application/json"),
             ct);
     }
 
