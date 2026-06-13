@@ -483,11 +483,12 @@ public class GraphMailWorker(
         CancellationToken ct)
     {
         var mime = BuildMultipartAlternativeMime(
-            from: mailAddress,
-            to: email.To,
-            subject: email.Subject,
+            from:     mailAddress,
+            to:       email.To,
+            subject:  email.Subject,
             plainText: body.PlainText,
-            html: body.Html);
+            html:     body.Html,
+            replyTo:  mailAddress);
 
         return await graphHttp.PostAsync(
             $"{GraphBase}/me/sendMail",
@@ -565,7 +566,8 @@ public class GraphMailWorker(
             plainText: body.PlainText,
             html:      body.Html,
             inReplyTo: inReplyTo,
-            references: references);
+            references: references,
+            replyTo:   mailAddress);
 
         return await graphHttp.PostAsync(
             $"{GraphBase}/me/sendMail",
@@ -583,7 +585,8 @@ public class GraphMailWorker(
         string plainText,
         string html,
         string? inReplyTo  = null,
-        string? references = null)
+        string? references = null,
+        string? replyTo    = null)
     {
         var boundary = $"daeanne-alt-{Guid.NewGuid():N}";
         var sb = new StringBuilder();
@@ -594,6 +597,10 @@ public class GraphMailWorker(
             sb.Append($"From: {SanitizeHeaderValue(from)}\r\n");
         if (!string.IsNullOrWhiteSpace(to))
             sb.Append($"To: {SanitizeHeaderValue(to)}\r\n");
+        // Reply-To ensures responses route to the correct address even when Graph overrides
+        // the From address with the account's primary alias on consumer Outlook.com accounts.
+        if (!string.IsNullOrWhiteSpace(replyTo))
+            sb.Append($"Reply-To: {SanitizeHeaderValue(replyTo)}\r\n");
         if (!string.IsNullOrWhiteSpace(subject))
             sb.Append($"Subject: {SanitizeHeaderValue(subject)}\r\n");
         if (!string.IsNullOrWhiteSpace(inReplyTo))
