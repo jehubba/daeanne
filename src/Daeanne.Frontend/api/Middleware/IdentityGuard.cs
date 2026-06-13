@@ -9,7 +9,11 @@ public class IdentityGuard : IFunctionsWorkerMiddleware
     private static readonly HashSet<string> AnonymousFunctions = new(StringComparer.OrdinalIgnoreCase)
     {
         "health",
-        "get-roles"
+        "get-roles",
+        // Push endpoints — these have their own auth checks (internal key or VAPID)
+        "notify",
+        "vapidPublicKey",
+        "subscribe"
     };
 
     public async Task Invoke(FunctionContext context, FunctionExecutionDelegate next)

@@ -40,6 +40,7 @@ if (!string.IsNullOrEmpty(storageConnection))
 {
     builder.Services.AddSingleton(new BlobServiceClient(storageConnection));
     builder.Services.AddSingleton<ResultStore>();
+    builder.Services.AddSingleton<PushSubscriptionStore>();
 }
 else
 {

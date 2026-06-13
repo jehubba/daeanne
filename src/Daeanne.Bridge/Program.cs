@@ -9,6 +9,9 @@ builder.Services.AddHttpClient("dispatcher", client =>
     if (!string.IsNullOrWhiteSpace(dispatcherApiKey))
         client.DefaultRequestHeaders.Add("X-Daeanne-Key", dispatcherApiKey);
 });
+
+// Configure the named "frontend" HttpClient for calls to the Frontend SWA API.
+builder.Services.AddHttpClient("frontend");
 builder.Services.AddHostedService<BridgeWorker>();
 builder.Services.AddHostedService<GraphMailWorker>();
 builder.Services.AddHostedService<SmsSenderWorker>();

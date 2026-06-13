@@ -113,6 +113,7 @@ public class FrontendRelayWorker : BackgroundService
                 var result = await PollForCompletionAsync(client, dispatcherUrl, taskId!, request.CorrelationId, stoppingToken);
 
                 await SaveResultAsync(blobContainer, result, stoppingToken);
+                await PostPushNotifyAsync(result, stoppingToken);
                 await args.CompleteMessageAsync(args.Message, stoppingToken);
 
                 _logger.LogInformation("FrontendRequest {CorrelationId} completed. Succeeded={Succeeded}",
@@ -231,4 +232,59 @@ public class FrontendRelayWorker : BackgroundService
         await blob.UploadAsync(stream, overwrite: true, cancellationToken: ct);
         _logger.LogInformation("FrontendRelayWorker: result saved to blob for {CorrelationId}", result.CorrelationId);
     }
+
+    /// <summary>
+    /// Posts a push notification to the Frontend API's /api/notify endpoint
+    /// when a task completes.  Silently skips if FrontendApiUrl is not configured.
+    /// </summary>
+    private async Task PostPushNotifyAsync(FrontendResult result, CancellationToken ct)
+    {
+        var frontendApiUrl = _config["Bridge:FrontendApiUrl"];
+        if (string.IsNullOrWhiteSpace(frontendApiUrl)) return;
+
+        try
+        {
+            var internalKey = _config["Bridge:FrontendInternalKey"] ?? "";
+            var notifyType = result.Succeeded ? "task_complete" : "alert";
+            var title = result.Succeeded ? "Task completed" : "Task failed";
+            var body = result.Succeeded
+                ? TruncateMessage(result.Response, "Your task finished successfully.")
+                : TruncateMessage(result.Error, "A task did not complete.");
+
+            var payload = new
+            {
+                type = notifyType,
+                title,
+                body,
+                taskId = (string?)null,
+                url = "/tasks"
+            };
+
+            var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            });
+
+            var client = _http.CreateClient("frontend");
+            var request = new HttpRequestMessage(HttpMethod.Post, $"{frontendApiUrl.TrimEnd('/')}/notify")
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
+            if (!string.IsNullOrWhiteSpace(internalKey))
+                request.Headers.Add("X-Internal-Key", internalKey);
+
+            var response = await client.SendAsync(request, ct);
+            if (!response.IsSuccessStatusCode)
+                _logger.LogWarning("FrontendRelayWorker: notify returned {Status}.", response.StatusCode);
+            else
+                _logger.LogInformation("FrontendRelayWorker: push notification sent.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "FrontendRelayWorker: failed to send push notification.");
+        }
+    }
+
+    private static string TruncateMessage(string? message, string defaultText, int maxLength = 120)
+        => message is { Length: > 0 } m ? m[..Math.Min(m.Length, maxLength)] : defaultText;
 }
