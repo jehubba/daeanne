@@ -215,3 +215,6 @@ app.MapSchedulerCronEndpoints();
 app.MapPreferencesEndpoints();
 
 app.Run();
+
+// Expose the implicit Program class to the test assembly.
+public partial class Program { }

@@ -4,10 +4,19 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'src/Daeanne.Frontend/**'
+      - 'src/Daeanne.Shared/**'
+      - '.github/workflows/deploy-swa.yml'
   pull_request:
     types: [opened, synchronize, reopened, closed]
     branches:
       - main
+    paths:
+      - 'src/Daeanne.Frontend/**'
+      - 'src/Daeanne.Shared/**'
+      - '.github/workflows/deploy-swa.yml'
+  workflow_dispatch:
 
 jobs:
   build_and_deploy:
