@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Azure.Messaging.ServiceBus;
+using Azure.Storage.Blobs;
 using Daeanne.Shared.Models;
 
 namespace Daeanne.Bridge;
@@ -29,7 +30,7 @@ public class FrontendRelayWorker : BackgroundService
         var connectionString = _config.GetConnectionString("ServiceBus");
         var dispatcherUrl = _config["Bridge:DispatcherUrl"] ?? "http://127.0.0.1:47777";
         var requestQueue = _config["Bridge:FrontendRequestQueue"] ?? "daeanne-frontend-requests";
-        var resultQueue = _config["Bridge:FrontendResultQueue"] ?? "daeanne-frontend-results";
+        var blobConnStr = _config.GetConnectionString("FrontendStorage");
 
         if (string.IsNullOrWhiteSpace(connectionString))
         {
@@ -38,10 +39,21 @@ public class FrontendRelayWorker : BackgroundService
             return;
         }
 
+        BlobContainerClient? blobContainer = null;
+        if (!string.IsNullOrWhiteSpace(blobConnStr))
+        {
+            blobContainer = new BlobContainerClient(blobConnStr, "frontend-results");
+            await blobContainer.CreateIfNotExistsAsync(cancellationToken: stoppingToken);
+            _logger.LogInformation("FrontendRelayWorker: blob result store ready.");
+        }
+        else
+        {
+            _logger.LogWarning("FrontendRelayWorker: no FrontendStorage connection string — results will not be persisted.");
+        }
+
         _logger.LogInformation("FrontendRelayWorker starting. Queue: {Queue}", requestQueue);
 
         await using var sbClient = new ServiceBusClient(connectionString);
-        await using var resultSender = sbClient.CreateSender(resultQueue);
 
         var options = new ServiceBusProcessorOptions
         {
@@ -86,7 +98,7 @@ public class FrontendRelayWorker : BackgroundService
                 {
                     var errorResult = new FrontendResult(request.CorrelationId, false,
                         Error: $"Dispatcher returned {(int)createResponse.StatusCode}: {createBody}");
-                    await SendResultAsync(resultSender, errorResult, stoppingToken);
+                        await SaveResultAsync(blobContainer, errorResult, stoppingToken);
                     await args.CompleteMessageAsync(args.Message, stoppingToken);
                     return;
                 }
@@ -100,7 +112,7 @@ public class FrontendRelayWorker : BackgroundService
                 // Poll for task completion (up to 10 minutes)
                 var result = await PollForCompletionAsync(client, dispatcherUrl, taskId!, request.CorrelationId, stoppingToken);
 
-                await SendResultAsync(resultSender, result, stoppingToken);
+                await SaveResultAsync(blobContainer, result, stoppingToken);
                 await args.CompleteMessageAsync(args.Message, stoppingToken);
 
                 _logger.LogInformation("FrontendRequest {CorrelationId} completed. Succeeded={Succeeded}",
@@ -202,9 +214,21 @@ public class FrontendRelayWorker : BackgroundService
         }
     }
 
-    private static async Task SendResultAsync(ServiceBusSender sender, FrontendResult result, CancellationToken ct)
+    private async Task SaveResultAsync(BlobContainerClient? container, FrontendResult result, CancellationToken ct)
     {
-        var message = new ServiceBusMessage(JsonSerializer.Serialize(result, JsonOpts));
-        await sender.SendMessageAsync(message, ct);
+        if (container is null)
+        {
+            _logger.LogWarning("FrontendRelayWorker: no blob container — dropping result for {CorrelationId}", result.CorrelationId);
+            return;
+        }
+
+        var json = JsonSerializer.Serialize(result, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        });
+        var blob = container.GetBlobClient($"{result.CorrelationId}.json");
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
+        await blob.UploadAsync(stream, overwrite: true, cancellationToken: ct);
+        _logger.LogInformation("FrontendRelayWorker: result saved to blob for {CorrelationId}", result.CorrelationId);
     }
 }
