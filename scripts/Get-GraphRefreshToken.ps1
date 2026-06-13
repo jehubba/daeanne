@@ -93,15 +93,17 @@ if (-not $token -or -not $token.refresh_token) {
 Write-Host ""
 Write-Host "Authorization succeeded."
 
-# ── Step 3: Store in user-secrets ────────────────────────────────────────────
+# ── Step 3: Store token for both modes ───────────────────────────────────────
+# user-secrets: for Development / dotnet run
 dotnet user-secrets set "Graph:RefreshToken" $token.refresh_token --project $bridgeProj | Out-Null
 
-# Also delete the cached token file so Bridge reloads from user-secrets on next start
+# Token file (plaintext JSON): Bridge reads this on startup regardless of environment.
+# LoadTokenState() detects the '{' prefix, reads it as legacy plaintext, then re-encrypts.
+# This is the only path that works when Bridge runs in Release mode (no user-secrets).
 $tokenFile = "$env:APPDATA\daeanne\graph-token.json"
-if (Test-Path $tokenFile) {
-    Remove-Item $tokenFile -Force
-    Write-Host "Cleared cached token at $tokenFile"
-}
+$null = New-Item -ItemType Directory -Force -Path (Split-Path $tokenFile)
+@{ RefreshToken = $token.refresh_token } | ConvertTo-Json | Set-Content $tokenFile -Encoding UTF8
+Write-Host "Refresh token written to $tokenFile (Bridge will encrypt on first load)"
 
 Write-Host ""
 Write-Host "✓ Refresh token saved to user-secrets (Graph:RefreshToken)."
