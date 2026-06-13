@@ -48,5 +48,13 @@ public class DaeanneApiClient
         return await response.Content.ReadFromJsonAsync<TrendHighlightDto>(cancellationToken: ct);
     }
 
+    public async Task<MusicSearchResultDto?> SearchMusicAsync(string query, CancellationToken ct = default)
+    {
+        var q = Uri.EscapeDataString(query);
+        var response = await _http.GetAsync($"api/music/search?q={q}", ct);
+        if (!response.IsSuccessStatusCode) return null;
+        return await response.Content.ReadFromJsonAsync<MusicSearchResultDto>(cancellationToken: ct);
+    }
+
     private record TaskListResponse(List<TaskDto> Tasks, int Total);
 }
