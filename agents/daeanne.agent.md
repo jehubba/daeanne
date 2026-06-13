@@ -1411,7 +1411,7 @@ When your task type is `DailySummary`, produce and send the daily office report.
 
 3. If no journal exists (or it's sparse), fall back to querying the task API:
    ```powershell
-   $tasks = Invoke-RestMethod "http://127.0.0.1:47777/tasks?take=200"
+   $tasks = Invoke-RestMethod "http://127.0.0.1:47777/tasks?take=200" -Headers $dh
    $window = $tasks | Where-Object {
        [datetime]$_.createdAt -ge [datetime]"<window_start>" -and
        [datetime]$_.createdAt -le [datetime]"<window_end>"
@@ -1427,6 +1427,13 @@ When your task type is `DailySummary`, produce and send the daily office report.
        "$taskBase\complete\archive\$($task.id)\daeanne-plan.md"
    ) | Where-Object { Test-Path $_ } | Select-Object -First 1
    if ($planDoc) { Get-Content $planDoc -Raw }
+   ```
+   Also capture the full Blocked/Deferred backlog for the coherence check in step 5
+   (the window query above won't include tasks created before the window):
+   ```powershell
+   $allTasks = Invoke-RestMethod "http://127.0.0.1:47777/tasks?take=500" -Headers $dh
+   $blocked  = $allTasks | Where-Object { $_.status -eq "Blocked" }
+   $deferred = $allTasks | Where-Object { $_.status -eq "Deferred" }
    ```
 
 4. Check for today's trend report and load highlights:
@@ -1449,9 +1456,13 @@ When your task type is `DailySummary`, produce and send the daily office report.
    `$trendContent` without re-reading. The report is your source of truth for
    any trend follow-ups during the same conversation or task chain.
 
-5. Synthesize the report (format below) and send it to the recipient in the prompt.
+5. **Run the Coherence Check** (see `## Coherence Check`) against `$blocked` and
+   `$deferred` from step 3. Apply any auto-resolutions before synthesizing. Include
+   the auto-resolved count in the **Issues & Observations** section.
 
-6. Confirm delivery before marking the DailySummary task Succeeded.
+6. Synthesize the report (format below) and send it to the recipient in the prompt.
+
+7. Confirm delivery before marking the DailySummary task Succeeded.
 
 ### Report format
 
@@ -1561,6 +1572,114 @@ $existing = Invoke-RestMethod "http://127.0.0.1:47777/tasks?take=50" |
 
 ---
 
+## Coherence Check
+
+A pre-send scan that auto-resolves stale items and flags contradictions before
+they appear in a briefing or summary. Run this against any set of Blocked and
+Deferred tasks before synthesizing a MorningBriefing or DailySummary.
+
+### When to run
+
+- **Required** before sending any MorningBriefing (step 5 of procedure)
+- **Required** before sending any DailySummary (step 5 of procedure)
+- **Optional but recommended** whenever manually reviewing the Blocked/Deferred backlog
+
+### Input
+
+The set of Blocked and Deferred tasks already fetched for the briefing/summary,
+plus the recent task history (last 7 days, Succeeded/Failed).
+
+```powershell
+$all = Invoke-RestMethod "http://127.0.0.1:47777/tasks?take=500" -Headers $dh
+$blocked  = $all | Where-Object { $_.status -eq "Blocked" }
+$deferred = $all | Where-Object { $_.status -eq "Deferred" }
+$recent   = $all | Where-Object {
+    $_.status -in @("Succeeded","Failed") -and
+    [datetime]$_.createdAt -ge (Get-Date).AddDays(-7)
+}
+```
+
+### Step 1 — Closed GitHub issues (auto-resolve)
+
+Already handled by MorningBriefing step 2, but run for DailySummary contexts too:
+for each Blocked task, scan `prompt` and `contextJson` for GitHub issue refs
+(`jehubba/daeanne#NNN`, `github.com/.*/issues/NNN`). For each ref found, check state:
+
+```powershell
+$issue = & "C:\Program Files\GitHub CLI\gh.exe" issue view <N> --repo jehubba/daeanne --json state | ConvertFrom-Json
+if ($issue.state -eq "CLOSED") {
+    Invoke-RestMethod -Method Patch "http://127.0.0.1:47777/tasks/$($task.id)/status" `
+        -Body (@{ status = "Succeeded"; error = "Auto-resolved (coherence): referenced issue closed." } | ConvertTo-Json) `
+        -ContentType "application/json" -Headers $dh
+    # Log the auto-resolution (see Step 4)
+}
+```
+
+### Step 2 — Resolved conditions (semantic scan)
+
+For each remaining Blocked or Deferred task, compare its blocking condition against
+recent completed tasks. Look for:
+
+| Signal | Condition text | Check against |
+|--------|---------------|---------------|
+| Waiting for a task to finish | "waiting on", "pending completion of", "after X is done" | `$recent` — is that task Succeeded? |
+| Waiting on an email reply | "waiting for Jeffrey's reply", "deferral — Jeffrey to decide" | Recent inbound Email tasks with matching subject or escalation ref |
+| Date-bounded hold | "hold until", "revisit after", "not before" + a date | `(Get-Date)` — has the date passed? |
+| Explicit "resolved" mention | "already resolved", "no longer needed", "superseded" in prompt | Auto-resolve |
+
+This is a reasoning step — no single regex catches everything. Read the task prompt
+and apply judgment. Err toward keeping items rather than silently dropping them;
+auto-resolve only when the evidence is unambiguous.
+
+For tasks where the condition appears resolved but you are not certain:
+- Mark them in a `$flagged` list
+- Include them in the briefing with a note: `*(may be resolved — verify)*`
+- Do NOT auto-resolve uncertain items
+
+### Step 3 — Contradiction detection
+
+Scan for pairs that contradict each other or contradict recently completed work:
+
+- Two Blocked tasks waiting on opposite outcomes of the same decision
+- A Deferred task whose topic was already fully addressed by a recent Succeeded task
+  (e.g., "research X" deferred, but a Research task on X completed yesterday)
+- A task that references stale state (e.g., a version number, a person's role, a
+  system state) that recent tasks have updated
+
+For each contradiction found:
+- Do NOT auto-resolve — contradictions require human judgment
+- Add a `⚠ Contradiction:` note to the relevant item(s) in the briefing
+
+### Step 4 — Audit log
+
+For every item auto-resolved during the coherence check, append to the coherence audit log:
+
+```powershell
+$auditLog = "$env:USERPROFILE\.daeanne\notes\coherence-audit.md"
+$null = New-Item -ItemType Directory -Force -Path (Split-Path $auditLog)
+Add-Content $auditLog @"
+
+## $(Get-Date -Format 'yyyy-MM-dd HH:mm') — Auto-resolved
+
+**Task ID**: $($task.id)
+**Topic**: $(($task.prompt -split "`n")[0].Trim())
+**Reason**: $reason
+**Original status**: $($task.status)
+"@
+```
+
+Include the count of auto-resolved items in the DailySummary **Issues & Observations**
+section and the MorningBriefing email footer (one line: `{N} stale item(s) auto-resolved — see ~/.daeanne/notes/coherence-audit.md`).
+Omit the line if N = 0.
+
+### Step 5 — Return
+
+After the coherence check, the calling procedure continues with the trimmed,
+annotated task list. Items that were auto-resolved are excluded from the briefing.
+Items that are flagged or annotated with contradictions are included with their notes.
+
+---
+
 ## Morning Briefing
 
 When your task type is `MorningBriefing`, produce and send a focused action-items
@@ -1629,9 +1748,13 @@ what needs a decision or follow-up.
    `$branchSection` is non-null and contains open PRs or stale branches.
    If the entry says "all repos clean", omit the section entirely.
 
-5. Synthesize the briefing (format below) and send it to the recipient in the prompt.
+5. **Run the Coherence Check** (see `## Coherence Check`) against the full Blocked
+   and Deferred list (including any already validated against GitHub in step 2).
+   Apply auto-resolutions before synthesizing. The check may further trim the list.
 
-6. Mark the MorningBriefing task Succeeded after confirming delivery.
+6. Synthesize the briefing (format below) and send it to the recipient in the prompt.
+
+7. Mark the MorningBriefing task Succeeded after confirming delivery.
 
 ### Report format
 
