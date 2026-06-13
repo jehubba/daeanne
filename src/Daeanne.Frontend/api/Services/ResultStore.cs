@@ -6,13 +6,17 @@ namespace DaeanneFrontend.Api.Services;
 
 public class ResultStore
 {
-    private readonly BlobContainerClient _container;
+    private readonly BlobContainerClient? _container;
+
+    public static readonly ResultStore Unconfigured = new();
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         PropertyNameCaseInsensitive = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
+
+    private ResultStore() { _container = null; }
 
     public ResultStore(BlobServiceClient blobService)
     {
@@ -22,6 +26,7 @@ public class ResultStore
 
     public async Task SaveAsync(FrontendResult result)
     {
+        if (_container is null) return;
         var blob = _container.GetBlobClient($"{result.CorrelationId}.json");
         var json = JsonSerializer.Serialize(result, JsonOpts);
         using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(json));
@@ -30,6 +35,7 @@ public class ResultStore
 
     public async Task<FrontendResult?> GetAsync(string correlationId)
     {
+        if (_container is null) return null;
         var blob = _container.GetBlobClient($"{correlationId}.json");
         if (!await blob.ExistsAsync()) return null;
 
