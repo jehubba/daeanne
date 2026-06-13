@@ -12,6 +12,11 @@
                            Color="@(IsActive("/tasks") ? Color.Primary : Color.Default)"
                            OnClick="@(() => Nav.NavigateTo("/tasks"))" />
         </MudItem>
+        <MudItem>
+            <MudIconButton Icon="@Icons.Material.Filled.MusicNote"
+                           Color="@(IsActive("/music") ? Color.Primary : Color.Default)"
+                           OnClick="@(() => Nav.NavigateTo("/music"))" />
+        </MudItem>
     </MudGrid>
 </MudAppBar>
 

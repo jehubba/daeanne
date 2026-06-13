@@ -1,0 +1,68 @@
+@using DaeanneFrontend.Shared
+
+<div class="pa-2">
+    <MudText Typo="Typo.h6">@Result.Title</MudText>
+    <MudText Typo="Typo.subtitle2" Color="Color.Secondary" Class="mb-2">@Result.Artist</MudText>
+
+    <div class="d-flex gap-2 flex-wrap mb-3">
+        @if (!string.IsNullOrEmpty(Result.Key))
+        {
+            <MudChip T="string" Size="Size.Small">Key: @Result.Key</MudChip>
+        }
+        @if (!string.IsNullOrEmpty(Result.Tempo))
+        {
+            <MudChip T="string" Size="Size.Small">@Result.Tempo</MudChip>
+        }
+        <MudChip T="string" Size="Size.Small"
+                 Color="@(Result.Source == "known" ? Color.Success : Color.Warning)">
+            @(Result.Source == "known" ? "Verified" : "AI Generated")
+        </MudChip>
+    </div>
+
+    @if (Result.Chords.Any())
+    {
+        <MudPaper Class="pa-3 mb-4" Elevation="1">
+            <MudText Typo="Typo.overline" Class="mb-1">Chords Used</MudText>
+            <div style="display:flex;flex-wrap:wrap">
+                @foreach (var chord in Result.Chords)
+                {
+                    <DaeanneFrontend.Client.Components.Music.ChordDiagram Chord="@chord" />
+                }
+            </div>
+        </MudPaper>
+    }
+
+    @foreach (var sec in Result.Sections)
+    {
+        <div class="mb-4">
+            <MudText Typo="Typo.subtitle2" Color="Color.Primary" Class="mb-2">
+                @sec.Label
+            </MudText>
+            @foreach (var line in sec.Lines)
+            {
+                <div class="mb-3">
+                    <div class="d-flex flex-wrap gap-1 mb-1">
+                        @foreach (var chord in line.Chords)
+                        {
+                            <MudChip T="string" Size="Size.Small"
+                                     Variant="Variant.Outlined" Color="Color.Primary">
+                                @chord
+                            </MudChip>
+                        }
+                    </div>
+                    @if (!string.IsNullOrEmpty(line.Lyrics))
+                    {
+                        <MudText Typo="Typo.body2" Style="opacity:0.75;font-style:italic">
+                            @line.Lyrics
+                        </MudText>
+                    }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public MusicSearchResultDto Result { get; set; } = default!;
+}

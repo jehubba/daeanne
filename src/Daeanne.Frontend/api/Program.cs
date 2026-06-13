@@ -27,6 +27,11 @@ builder.Services.AddHttpClient<DaeanneFrontend.Api.TrendFunction>(client =>
     client.BaseAddress = new Uri(bridgeBaseUrl);
     client.Timeout = TimeSpan.FromSeconds(10);
 });
+builder.Services.AddHttpClient<DaeanneFrontend.Api.MusicFunction>(client =>
+{
+    // No base address — MusicFunction constructs the full Azure OpenAI URL from env vars
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
 
 var sbConnectionString = Environment.GetEnvironmentVariable("ServiceBusConnection");
 if (!string.IsNullOrEmpty(sbConnectionString))

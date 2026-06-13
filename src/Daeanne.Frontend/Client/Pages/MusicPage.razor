@@ -1,0 +1,88 @@
+@page "/music"
+@using DaeanneFrontend.Client.Services
+@using DaeanneFrontend.Shared
+@inject DaeanneApiClient Api
+
+<div class="pa-3">
+    <MudText Typo="Typo.h6" Class="mb-3">
+        <MudIcon Icon="@Icons.Material.Filled.MusicNote" Size="Size.Small" Class="mr-1" />
+        Chord Finder
+    </MudText>
+
+    <div class="d-flex gap-2 mb-4">
+        <MudTextField @bind-Value="_query"
+                      Placeholder="Song or artist (e.g. Wonderwall, Hotel California...)"
+                      Variant="Variant.Outlined" FullWidth="true" Immediate="true"
+                      OnKeyDown="OnKeyDown" Disabled="@_isSearching"
+                      Class="flex-grow-1" />
+        <MudIconButton Icon="@Icons.Material.Filled.Search" Color="Color.Primary"
+                       Disabled="@(string.IsNullOrWhiteSpace(_query) || _isSearching)"
+                       OnClick="SearchAsync" />
+    </div>
+
+    @if (_isSearching)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="mb-4" />
+    }
+
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-4">@_error</MudAlert>
+    }
+
+    @if (_result is not null)
+    {
+        @if (_result.Source == "error")
+        {
+            <MudAlert Severity="Severity.Warning">@(_result.Error ?? "No results found.")</MudAlert>
+        }
+        else
+        {
+            <DaeanneFrontend.Client.Components.Music.ChordChart Result="@_result" />
+        }
+    }
+    else if (!_isSearching && _hasSearched)
+    {
+        <MudText Color="Color.Secondary">No results found for "@_lastQuery".</MudText>
+    }
+</div>
+
+@code {
+    private string _query = string.Empty;
+    private MusicSearchResultDto? _result;
+    private string? _error;
+    private bool _isSearching;
+    private bool _hasSearched;
+    private string _lastQuery = string.Empty;
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(_query))
+            await SearchAsync();
+    }
+
+    private async Task SearchAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_query) || _isSearching) return;
+
+        _isSearching = true;
+        _error = null;
+        _result = null;
+        _lastQuery = _query;
+
+        try
+        {
+            _result = await Api.SearchMusicAsync(_query);
+        }
+        catch (HttpRequestException)
+        {
+            _error = "Unable to reach Daeanne. Check connectivity.";
+        }
+        finally
+        {
+            _isSearching = false;
+            _hasSearched = true;
+            StateHasChanged();
+        }
+    }
+}

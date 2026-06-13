@@ -195,6 +195,48 @@ Same chain as task list but for a single task.
 
 ---
 
+## 6. Music Search
+
+### Client → Functions: `GET /api/music/search?q={query}`
+
+**Response** (200 OK) — `MusicSearchResultDto` in `Frontend/Shared/MusicSearchResultDto.cs`:
+```json
+{
+  "query": "string",
+  "title": "string | null",
+  "artist": "string | null",
+  "key": "string | null",
+  "tempo": "string | null",
+  "source": "known | generated | error",
+  "chords": [
+    { "name": "G", "frets": "320003", "fingers": "210003" }
+  ],
+  "sections": [
+    {
+      "label": "Verse 1",
+      "lines": [
+        { "chords": ["G", "Em"], "lyrics": "string | null" }
+      ]
+    }
+  ],
+  "error": "string | null"
+}
+```
+
+`source` values:
+- `"known"` — model has reliable training-data knowledge of the song's chords
+- `"generated"` — model generated a reasonable approximation
+- `"error"` — lookup failed; see `error` field
+
+`frets` format: 6 characters, strings 6→1 (low E to high e). `x` = muted, `0` = open, `1`–`9` = fret number.
+
+**Notes**:
+- The Functions project calls Azure OpenAI directly (no Bridge relay).
+- Requires `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, and optionally `AZURE_OPENAI_DEPLOYMENT` (default: `gpt-4o`).
+- Returns HTTP 200 even on soft failures (missing config, parse error) — check the `source` field.
+
+---
+
 ## Shared Types Reference
 
 | Type | Location | Used By |

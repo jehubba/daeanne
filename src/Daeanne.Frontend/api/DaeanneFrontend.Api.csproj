@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Daeanne.Shared\Daeanne.Shared.csproj" />
+    <ProjectReference Include="..\Shared\DaeanneFrontend.Shared.csproj" />
   </ItemGroup>
 
 </Project>
