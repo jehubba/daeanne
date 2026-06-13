@@ -496,10 +496,15 @@ public class GraphMailWorker(
     }
 
     /// <summary>
-    /// Sends a threaded reply using Graph's createReply → PATCH body → send pattern.
-    /// This is the only reliable way to get proper In-Reply-To / References headers:
-    /// Graph sets them when creating the draft, so email clients thread correctly.
-    /// The raw MIME /reply approach sends successfully but omits threading headers.
+    /// Sends a threaded reply using raw MIME via /sendMail.
+    ///
+    /// The prior createReply → PATCH → send approach set the correct From address
+    /// in theory, but Graph silently ignores the 'from' PATCH on consumer Outlook.com
+    /// accounts and sends from the account's default alias instead.
+    ///
+    /// Raw MIME via /sendMail honours the From: header unconditionally. We recover
+    /// threading (In-Reply-To + References) by fetching the original message's
+    /// internetMessageId and setting those RFC 5322 headers manually.
     /// </summary>
     private async Task<HttpResponseMessage> SendMultipartReplyAsync(
         HttpClient graphHttp,
@@ -509,42 +514,62 @@ public class GraphMailWorker(
         string mailAddress,
         CancellationToken ct)
     {
-        // Step 1 — create draft reply (Graph injects In-Reply-To + References)
-        var createResp = await graphHttp.PostAsync(
-            $"{GraphBase}/me/messages/{Uri.EscapeDataString(replyToGraphMessageId)}/createReply",
-            new StringContent("{}", Encoding.UTF8, "application/json"),
-            ct);
-
-        if (!createResp.IsSuccessStatusCode)
-            return createResp;   // caller checks IsSuccessStatusCode
-
-        using var createDoc = JsonDocument.Parse(await createResp.Content.ReadAsStringAsync(ct));
-        var draftId = createDoc.RootElement.GetProperty("id").GetString()
-            ?? throw new InvalidOperationException("createReply returned no draft id.");
-
-        // Step 2 — patch the draft with our formatted body and explicit from address
-        var patchPayload = JsonSerializer.Serialize(new
+        // Fetch original message to get internetMessageId for threading headers.
+        string? inReplyTo  = null;
+        string? references = null;
+        try
         {
-            subject = email.Subject,
-            body    = new { contentType = "html", content = body.Html },
-            from    = new { emailAddress = new { address = mailAddress } }
-        });
-        var patchResp = await graphHttp.PatchAsync(
-            $"{GraphBase}/me/messages/{Uri.EscapeDataString(draftId)}",
-            new StringContent(patchPayload, Encoding.UTF8, "application/json"),
-            ct);
+            var msgResp = await graphHttp.GetAsync(
+                $"{GraphBase}/me/messages/{Uri.EscapeDataString(replyToGraphMessageId)}" +
+                "?$select=internetMessageId,internetMessageHeaders",
+                ct);
+            if (msgResp.IsSuccessStatusCode)
+            {
+                using var doc = JsonDocument.Parse(await msgResp.Content.ReadAsStringAsync(ct));
+                var root = doc.RootElement;
 
-        if (!patchResp.IsSuccessStatusCode)
+                if (root.TryGetProperty("internetMessageId", out var mid))
+                    inReplyTo = mid.GetString();
+
+                // Build References = existing chain + this message id
+                if (root.TryGetProperty("internetMessageHeaders", out var hdrs))
+                {
+                    foreach (var h in hdrs.EnumerateArray())
+                    {
+                        if (h.TryGetProperty("name", out var n) &&
+                            string.Equals(n.GetString(), "References", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var existing = h.TryGetProperty("value", out var v) ? v.GetString() : null;
+                            references   = string.IsNullOrWhiteSpace(existing)
+                                ? inReplyTo
+                                : $"{existing} {inReplyTo}";
+                            break;
+                        }
+                    }
+                }
+
+                references ??= inReplyTo;
+            }
+        }
+        catch (Exception ex)
         {
-            // Clean up orphaned draft
-            await graphHttp.DeleteAsync($"{GraphBase}/me/messages/{Uri.EscapeDataString(draftId)}", ct);
-            return patchResp;
+            logger.LogWarning(ex,
+                "GraphMailWorker: could not fetch original message for threading headers — " +
+                "reply will send without In-Reply-To");
         }
 
-        // Step 3 — send the draft
+        var mime = BuildMultipartAlternativeMime(
+            from:      mailAddress,
+            to:        email.To,
+            subject:   email.Subject,
+            plainText: body.PlainText,
+            html:      body.Html,
+            inReplyTo: inReplyTo,
+            references: references);
+
         return await graphHttp.PostAsync(
-            $"{GraphBase}/me/messages/{Uri.EscapeDataString(draftId)}/send",
-            new StringContent("{}", Encoding.UTF8, "application/json"),
+            $"{GraphBase}/me/sendMail",
+            new StringContent(ToGraphMimePayload(mime), Encoding.UTF8, "text/plain"),
             ct);
     }
 
@@ -556,7 +581,9 @@ public class GraphMailWorker(
         string? to,
         string? subject,
         string plainText,
-        string html)
+        string html,
+        string? inReplyTo  = null,
+        string? references = null)
     {
         var boundary = $"daeanne-alt-{Guid.NewGuid():N}";
         var sb = new StringBuilder();
@@ -569,6 +596,10 @@ public class GraphMailWorker(
             sb.Append($"To: {SanitizeHeaderValue(to)}\r\n");
         if (!string.IsNullOrWhiteSpace(subject))
             sb.Append($"Subject: {SanitizeHeaderValue(subject)}\r\n");
+        if (!string.IsNullOrWhiteSpace(inReplyTo))
+            sb.Append($"In-Reply-To: {SanitizeHeaderValue(inReplyTo)}\r\n");
+        if (!string.IsNullOrWhiteSpace(references))
+            sb.Append($"References: {SanitizeHeaderValue(references)}\r\n");
         sb.Append("\r\n");
 
         sb.Append($"--{boundary}\r\n");
