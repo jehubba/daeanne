@@ -109,7 +109,9 @@ dispatch via the Dispatcher.
 **Goal:** Daeanne can schedule and query calendar events without knowing
 about Microsoft Graph.
 
-- [ ] `agents/scheduler.agent.md`
+- [x] `agents/scheduler.agent.md`
+- [x] Dispatcher `Scheduling` task type now auto-dispatches to `scheduler`
+- [x] VS Code MCP config template added at `.vscode/mcp.json` for `agent365-calendartools`
 - [ ] Microsoft Graph API credentials and consent
 - [ ] Scheduler handles: create event, check availability, list upcoming
 - [ ] Daeanne dispatches scheduling requests without knowing Graph details

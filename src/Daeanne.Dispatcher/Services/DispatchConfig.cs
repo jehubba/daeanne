@@ -60,6 +60,7 @@ public class DispatchConfig
     public Dictionary<string, string> AgentMap { get; set; } = new()
     {
         ["Research"]   = "research-agent",
+        ["Scheduling"] = "scheduler",
         ["Generic"]    = "daeanne",
         ["Diagnostic"] = "daeanne"
     };

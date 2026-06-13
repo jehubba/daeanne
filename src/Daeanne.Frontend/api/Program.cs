@@ -34,11 +34,17 @@ if (!string.IsNullOrEmpty(sbConnectionString))
     builder.Services.AddSingleton(new ServiceBusClient(sbConnectionString));
 }
 
-var storageConnection = Environment.GetEnvironmentVariable("AzureWebJobsStorage");
+var storageConnection = Environment.GetEnvironmentVariable("AzureWebJobsStorage")
+    ?? Environment.GetEnvironmentVariable("FRONTEND_STORAGE_CONNECTION");
 if (!string.IsNullOrEmpty(storageConnection))
 {
     builder.Services.AddSingleton(new BlobServiceClient(storageConnection));
     builder.Services.AddSingleton<ResultStore>();
+    builder.Services.AddSingleton<PushSubscriptionStore>();
+}
+else
+{
+    builder.Services.AddSingleton<ResultStore>(_ => ResultStore.Unconfigured);
 }
 
 if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTION_STRING")))

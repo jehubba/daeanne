@@ -97,7 +97,7 @@ public class GraphMailWorker(
 
         await Task.WhenAll(
             RunInboundLoopAsync(clientId, tokenState, mailAddress, dispatcherUrl, inboundPollSeconds, blockedSenders, stoppingToken),
-            RunOutboundLoopAsync(clientId, tokenState, dispatcherUrl, outboundPollSeconds, stoppingToken));
+            RunOutboundLoopAsync(clientId, tokenState, mailAddress, dispatcherUrl, outboundPollSeconds, stoppingToken));
     }
 
     private async Task RunInboundLoopAsync(
@@ -117,12 +117,12 @@ public class GraphMailWorker(
     }
 
     private async Task RunOutboundLoopAsync(
-        string clientId, TokenState tokenState,
+        string clientId, TokenState tokenState, string mailAddress,
         string dispatcherUrl, int pollSeconds, CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
-            try   { await SendPendingEmailsAsync(clientId, tokenState, dispatcherUrl, ct); }
+            try   { await SendPendingEmailsAsync(clientId, tokenState, mailAddress, dispatcherUrl, ct); }
             catch (HttpRequestException ex) when (IsConnectionRefused(ex))
             { logger.LogWarning("GraphMailWorker: Dispatcher unreachable (outbound) — will retry in {S}s", pollSeconds); }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -139,7 +139,7 @@ public class GraphMailWorker(
     // ─── OUTBOUND: Dispatcher outbox → Graph sendMail ─────────────────────────
 
     private async Task SendPendingEmailsAsync(
-        string clientId, TokenState tokenState, string dispatcherUrl, CancellationToken ct)
+        string clientId, TokenState tokenState, string mailAddress, string dispatcherUrl, CancellationToken ct)
     {
         var dispatchHttp = http.CreateClient("dispatcher");
 
@@ -189,12 +189,13 @@ public class GraphMailWorker(
                         email.ReplyToGraphMessageId,
                         email,
                         formattedBody,
+                        mailAddress,
                         ct);
                 }
                 else
                 {
                     // New email thread
-                    sendResp = await SendMultipartEmailAsync(graphHttp, email, formattedBody, ct);
+                    sendResp = await SendMultipartEmailAsync(graphHttp, email, formattedBody, mailAddress, ct);
                 }
 
                 if (sendResp.IsSuccessStatusCode)
@@ -384,7 +385,7 @@ public class GraphMailWorker(
                 ["grant_type"]    = "refresh_token",
                 ["client_id"]     = clientId,
                 ["refresh_token"] = state.RefreshToken!,
-                ["scope"]         = "Mail.Read Mail.ReadWrite Mail.Send offline_access"
+                ["scope"]         = "Mail.Read Mail.ReadWrite Mail.Send Calendars.ReadWrite offline_access"
             }), ct);
 
         resp.EnsureSuccessStatusCode();
@@ -416,7 +417,10 @@ public class GraphMailWorker(
         BridgeHealth.GraphTokenError       = null;
         BridgeHealth.GraphTokenLastChecked = DateTime.UtcNow;
 
-        return root.GetProperty("access_token").GetString()!;
+        var accessToken = root.GetProperty("access_token").GetString()!;
+        var expiresIn   = root.TryGetProperty("expires_in", out var exp) ? exp.GetInt32() : 3600;
+        GraphTokenCache.Update(accessToken, expiresIn);
+        return accessToken;
     }
 
     private async Task MarkReadAsync(HttpClient graphHttp, string messageId, CancellationToken ct)
@@ -474,69 +478,86 @@ public class GraphMailWorker(
         Your task is to process this email on behalf of Jeffrey per your standing instructions.
         """;
 
+    /// <summary>
+    /// Sends a new email via the Graph JSON sendMail API.
+    /// Using JSON (not raw MIME) because Graph on consumer Outlook.com accounts overrides
+    /// MIME headers (From, Reply-To) regardless of what we write. The JSON 'replyTo'
+    /// property is a structured routing field that Graph respects separately from 'from'.
+    /// </summary>
     private async Task<HttpResponseMessage> SendMultipartEmailAsync(
         HttpClient graphHttp,
         OutboxEmail email,
         EmailBodyFormatter.FormattedBody body,
+        string mailAddress,
         CancellationToken ct)
     {
-        var mime = BuildMultipartAlternativeMime(
-            to: email.To,
-            subject: email.Subject,
-            plainText: body.PlainText,
-            html: body.Html);
+        var payload = new
+        {
+            message = new
+            {
+                subject = email.Subject,
+                body = new { contentType = "HTML", content = body.Html },
+                toRecipients = new[] { new { emailAddress = new { address = email.To } } },
+                replyTo = new[] { new { emailAddress = new { address = mailAddress } } }
+            },
+            saveToSentItems = true
+        };
 
+        var json = JsonSerializer.Serialize(payload);
         return await graphHttp.PostAsync(
             $"{GraphBase}/me/sendMail",
-            new StringContent(ToGraphMimePayload(mime), Encoding.UTF8, "text/plain"),
+            new StringContent(json, Encoding.UTF8, "application/json"),
             ct);
     }
 
     /// <summary>
-    /// Sends a threaded reply using Graph's createReply → PATCH body → send pattern.
-    /// This is the only reliable way to get proper In-Reply-To / References headers:
-    /// Graph sets them when creating the draft, so email clients thread correctly.
-    /// The raw MIME /reply approach sends successfully but omits threading headers.
+    /// Sends a threaded reply via createReply → PATCH → send.
+    /// Graph automatically sets threading headers (In-Reply-To, References) when
+    /// createReply is used — no need to fetch internetMessageId manually.
+    /// We PATCH only the body and replyTo (not from — Graph ignores from on consumer
+    /// accounts to prevent spoofing, but replyTo is routing metadata it respects).
     /// </summary>
     private async Task<HttpResponseMessage> SendMultipartReplyAsync(
         HttpClient graphHttp,
         string replyToGraphMessageId,
         OutboxEmail email,
         EmailBodyFormatter.FormattedBody body,
+        string mailAddress,
         CancellationToken ct)
     {
-        // Step 1 — create draft reply (Graph injects In-Reply-To + References)
+        // Step 1: create a reply draft (threading headers set automatically by Graph)
         var createResp = await graphHttp.PostAsync(
             $"{GraphBase}/me/messages/{Uri.EscapeDataString(replyToGraphMessageId)}/createReply",
             new StringContent("{}", Encoding.UTF8, "application/json"),
             ct);
 
         if (!createResp.IsSuccessStatusCode)
-            return createResp;   // caller checks IsSuccessStatusCode
+            return createResp;
 
         using var createDoc = JsonDocument.Parse(await createResp.Content.ReadAsStringAsync(ct));
-        var draftId = createDoc.RootElement.GetProperty("id").GetString()
-            ?? throw new InvalidOperationException("createReply returned no draft id.");
+        var draftId = createDoc.RootElement.GetProperty("id").GetString()!;
 
-        // Step 2 — patch the draft with our formatted body
-        var patchPayload = JsonSerializer.Serialize(new
+        // Step 2: patch the draft — set body and replyTo
+        var patch = new
         {
-            subject = email.Subject,
-            body    = new { contentType = "html", content = body.Html }
-        });
-        var patchResp = await graphHttp.PatchAsync(
-            $"{GraphBase}/me/messages/{Uri.EscapeDataString(draftId)}",
-            new StringContent(patchPayload, Encoding.UTF8, "application/json"),
-            ct);
+            body    = new { contentType = "HTML", content = body.Html },
+            replyTo = new[] { new { emailAddress = new { address = mailAddress } } }
+        };
+
+        var patchResp = await graphHttp.SendAsync(
+            new HttpRequestMessage(new HttpMethod("PATCH"),
+                $"{GraphBase}/me/messages/{Uri.EscapeDataString(draftId)}")
+            {
+                Content = new StringContent(JsonSerializer.Serialize(patch), Encoding.UTF8, "application/json")
+            }, ct);
 
         if (!patchResp.IsSuccessStatusCode)
         {
-            // Clean up orphaned draft
-            await graphHttp.DeleteAsync($"{GraphBase}/me/messages/{Uri.EscapeDataString(draftId)}", ct);
-            return patchResp;
+            logger.LogWarning("GraphMailWorker: PATCH reply draft failed ({Code}) — sending without replyTo",
+                (int)patchResp.StatusCode);
         }
 
-        // Step 3 — send the draft
+        // Step 3: send the draft
         return await graphHttp.PostAsync(
             $"{GraphBase}/me/messages/{Uri.EscapeDataString(draftId)}/send",
             new StringContent("{}", Encoding.UTF8, "application/json"),
@@ -547,20 +568,34 @@ public class GraphMailWorker(
         Convert.ToBase64String(Encoding.UTF8.GetBytes(mimeRaw));
 
     private static string BuildMultipartAlternativeMime(
+        string? from,
         string? to,
         string? subject,
         string plainText,
-        string html)
+        string html,
+        string? inReplyTo  = null,
+        string? references = null,
+        string? replyTo    = null)
     {
         var boundary = $"daeanne-alt-{Guid.NewGuid():N}";
         var sb = new StringBuilder();
 
         sb.Append("MIME-Version: 1.0\r\n");
         sb.Append($"Content-Type: multipart/alternative; boundary=\"{boundary}\"\r\n");
+        if (!string.IsNullOrWhiteSpace(from))
+            sb.Append($"From: {SanitizeHeaderValue(from)}\r\n");
         if (!string.IsNullOrWhiteSpace(to))
             sb.Append($"To: {SanitizeHeaderValue(to)}\r\n");
+        // Reply-To ensures responses route to the correct address even when Graph overrides
+        // the From address with the account's primary alias on consumer Outlook.com accounts.
+        if (!string.IsNullOrWhiteSpace(replyTo))
+            sb.Append($"Reply-To: {SanitizeHeaderValue(replyTo)}\r\n");
         if (!string.IsNullOrWhiteSpace(subject))
             sb.Append($"Subject: {SanitizeHeaderValue(subject)}\r\n");
+        if (!string.IsNullOrWhiteSpace(inReplyTo))
+            sb.Append($"In-Reply-To: {SanitizeHeaderValue(inReplyTo)}\r\n");
+        if (!string.IsNullOrWhiteSpace(references))
+            sb.Append($"References: {SanitizeHeaderValue(references)}\r\n");
         sb.Append("\r\n");
 
         sb.Append($"--{boundary}\r\n");

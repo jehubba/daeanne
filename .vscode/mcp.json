@@ -1,0 +1,8 @@
+{
+  "servers": {
+    "agent365-calendartools": {
+      "type": "http",
+      "url": "https://agent365.svc.cloud.microsoft/agents/tenants/9188040d-6c67-4c5b-b112-36a304b66dad/servers/mcp_CalendarTools"
+    }
+  }
+}

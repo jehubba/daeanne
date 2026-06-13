@@ -6,6 +6,10 @@
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- File description shown in Windows notification header -->
+    <AssemblyTitle>Daeanne</AssemblyTitle>
+    <Product>Daeanne</Product>
+    <Company>Daeanne</Company>
   </PropertyGroup>
 
   <ItemGroup>

@@ -48,5 +48,22 @@ public class DaeanneApiClient
         return await response.Content.ReadFromJsonAsync<TrendHighlightDto>(cancellationToken: ct);
     }
 
+    /// <summary>Returns the VAPID public key from the server, or null if not configured.</summary>
+    public async Task<string?> GetVapidPublicKeyAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _http.GetAsync("api/push/vapid-public-key", ct);
+            if (!response.IsSuccessStatusCode) return null;
+            var result = await response.Content.ReadFromJsonAsync<VapidPublicKeyResponse>(cancellationToken: ct);
+            return result?.PublicKey;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private record VapidPublicKeyResponse(string PublicKey);
     private record TaskListResponse(List<TaskDto> Tasks, int Total);
 }

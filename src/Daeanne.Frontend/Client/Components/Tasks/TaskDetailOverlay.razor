@@ -1,6 +1,7 @@
 @using DaeanneFrontend.Client.Services
 @using DaeanneFrontend.Shared
 @inject DaeanneApiClient Api
+@inject PushInteropService PushInterop
 
 <MudOverlay Visible="true" DarkBackground="true" AutoClose="false">
     <MudCard Style="width: 95vw; max-width: 600px; max-height: 90vh; overflow-y: auto;">
@@ -17,6 +18,10 @@
                 }
             </CardHeaderContent>
             <CardHeaderActions>
+                @if (_isShareSupported && _task is not null)
+                {
+                    <MudIconButton Icon="@Icons.Material.Filled.Share" OnClick="ShareTask" />
+                }
                 <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="Close" />
             </CardHeaderActions>
         </MudCardHeader>
@@ -69,9 +74,11 @@
     private TaskDto? _task;
     private bool _isLoading = true;
     private string? _error;
+    private bool _isShareSupported;
 
     protected override async Task OnInitializedAsync()
     {
+        _isShareSupported = await PushInterop.IsShareSupportedAsync();
         try
         {
             _task = await Api.GetTaskAsync(TaskId);
@@ -86,6 +93,14 @@
         {
             _isLoading = false;
         }
+    }
+
+    private async Task ShareTask()
+    {
+        if (_task is null) return;
+        var url = $"/tasks/{_task.Id}";
+        var text = $"Daeanne task \"{_task.Topic}\" \u2014 {_task.Status}";
+        await PushInterop.ShareTaskAsync(_task.Topic, text, url);
     }
 
     private async Task Close()

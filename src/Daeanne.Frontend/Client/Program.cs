@@ -12,6 +12,7 @@ builder.Services.AddScoped(sp => new HttpClient
 });
 builder.Services.AddScoped<DaeanneApiClient>();
 builder.Services.AddScoped<ConnectivityService>();
+builder.Services.AddScoped<PushInteropService>();
 
 await builder.Build().RunAsync();
 

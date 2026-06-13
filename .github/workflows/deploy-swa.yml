@@ -32,15 +32,30 @@ jobs:
             -o publish/wwwroot \
             --nologo
 
+      - name: Publish API
+        run: |
+          dotnet publish src/Daeanne.Frontend/api/DaeanneFrontend.Api.csproj \
+            -c Release \
+            -o publish/api \
+            --nologo
+
+      - name: Deploy API to Function App
+        uses: Azure/functions-action@v1
+        with:
+          app-name: daeanne-frontend-api
+          package: publish/api
+          publish-profile: ${{ secrets.FUNC_PUBLISH_PROFILE }}
+
       - name: Deploy to Azure Static Web Apps
         uses: Azure/static-web-apps-deploy@v1
         with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          azure_static_web_apps_api_token: ${{ secrets.SWA_DEPLOYMENT_TOKEN }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: upload
           app_location: publish/wwwroot/wwwroot
-          api_location: src/Daeanne.Frontend/api
+          api_location: ''
           output_location: ''
+          skip_app_build: true
 
   close_pull_request:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
@@ -50,5 +65,5 @@ jobs:
       - name: Close Pull Request
         uses: Azure/static-web-apps-deploy@v1
         with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          azure_static_web_apps_api_token: ${{ secrets.SWA_DEPLOYMENT_TOKEN }}
           action: close

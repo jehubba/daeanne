@@ -2,6 +2,7 @@
 @using DaeanneFrontend.Client.Services
 @using DaeanneFrontend.Shared
 @inject DaeanneApiClient Api
+@inject PushInteropService PushInterop
 @implements IDisposable
 
 @if (_error is not null)
@@ -35,6 +36,11 @@
     {
         await LoadTasksAsync();
         await LoadTrendsAsync();
+        // Clear badge and ensure push subscription is active when user visits the tasks page
+        await PushInterop.ClearBadgeAsync();
+        var vapidKey = await Api.GetVapidPublicKeyAsync();
+        if (!string.IsNullOrWhiteSpace(vapidKey))
+            await PushInterop.SubscribeToPushAsync(vapidKey);
         _pollingTimer = new Timer(async _ => await InvokeAsync(async () =>
         {
             await LoadTasksAsync();
