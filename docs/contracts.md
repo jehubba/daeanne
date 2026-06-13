@@ -211,7 +211,88 @@ Same chain as task list but for a single task.
 
 ---
 
-## Serialization Conventions
+## 6. Push Notifications (Web Push + VAPID)
+
+### 6a. Client → Functions: `POST /api/subscribe`
+
+Stores a browser `PushSubscription` so the server can fan out push notifications.
+Called by `push-interop.js` after `PushManager.subscribe()` succeeds.
+
+**Request body** (standard browser `PushSubscription.toJSON()` shape):
+```json
+{
+  "endpoint": "https://fcm.googleapis.com/...",
+  "keys": { "p256dh": "Base64url-string", "auth": "Base64url-string" }
+}
+```
+
+**Response** (200 OK):
+```json
+{ "message": "Subscription saved" }
+```
+
+Subscriptions are stored in Azure Blob Storage, container `push-subscriptions`, one blob per endpoint (named by SHA-256 hash of the endpoint URL).
+
+### 6b. Bridge → Functions: `POST /api/notify` (internal)
+
+Called by `Daeanne.Bridge.FrontendRelayWorker` after a task reaches a terminal status.
+Secured by `X-Internal-Key` header matching the `NOTIFY_INTERNAL_KEY` environment variable.
+If `Bridge:FrontendApiUrl` is empty, the call is silently skipped.
+
+**Request header**: `X-Internal-Key: {NOTIFY_INTERNAL_KEY}`
+
+**Request body**:
+```json
+{
+  "type": "task_complete | escalation | alert | summary",
+  "title": "string",
+  "body":  "string",
+  "taskId": "guid-string | null",
+  "url":   "/tasks/{id}"
+}
+```
+
+**Response** (200 OK):
+```json
+{ "sent": 3, "failed": 0 }
+```
+
+Fan-out uses VAPID Web Push (library: `WebPush` 1.0.13).
+Stale subscriptions (HTTP 410 Gone) are removed automatically.
+
+### 6c. Client → Functions: `GET /api/push/vapid-public-key`
+
+Returns the VAPID public key so the client can call `PushManager.subscribe()`.
+
+**Response** (200 OK):
+```json
+{ "publicKey": "Base64url-encoded ECDSA P-256 public key" }
+```
+
+Returns 404 if `VAPID_PUBLIC_KEY` is not configured.
+
+### Required environment variables (SWA app settings)
+
+| Variable | Description |
+|---|---|
+| `VAPID_PUBLIC_KEY` | Base64url ECDSA P-256 public key (safe to expose to client) |
+| `VAPID_PRIVATE_KEY` | Base64url ECDSA P-256 private key (**secret — never commit**) |
+| `VAPID_SUBJECT` | `mailto:` or `https:` claim for VAPID JWT |
+| `NOTIFY_INTERNAL_KEY` | Shared secret for Bridge → Functions call (**secret**) |
+
+### Shared Bridge configuration keys
+
+| Key | Description |
+|---|---|
+| `Bridge:FrontendApiUrl` | Base URL of the SWA Functions (e.g., `https://daeanne.azurestaticapps.net/api`) |
+| `Bridge:FrontendInternalKey` | Must match `NOTIFY_INTERNAL_KEY` (**secret**) |
+
+### Client-side behavior
+
+- **Push subscription**: `PushInteropService.SubscribeToPushAsync(vapidPublicKey)` (called on Tasks page load)
+- **Badge API**: `PushInteropService.SetBadgeAsync(n)` / `ClearBadgeAsync()` (cleared on Tasks page load)
+- **Web Share**: `PushInteropService.ShareTaskAsync(title, text, url)` (share button in TaskDetailOverlay)
+- **iOS requirement**: Web Push requires iOS 16.4+ in standalone PWA mode
 
 - **Service Bus messages**: `camelCase`, case-insensitive deserialization.
 - **Dispatcher API**: `camelCase` (ASP.NET default). Enums serialized as strings.
