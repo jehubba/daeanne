@@ -232,13 +232,37 @@ public static class TaskEndpoints
         // ── Dormant → Pending promotion path ────────────────────────────────
         // A dormant task (Deferred/Blocked/Future) is promoted by patching status to Pending.
         // This moves the task dir to active/ and enqueues it for dispatch.
+        // Alternatively, a dormant task may be closed directly with a terminal status
+        // (Succeeded/Failed/Escalated/etc.) without ever being dispatched.
         if (task.IsDormant())
         {
+            // Allow closing a dormant task directly with a terminal status.
+            if (AgentTask.TerminalStatuses.Contains(newStatus))
+            {
+                var newWorkDir = TaskDirManager.MoveToFinalLocation(
+                    dispatchConfig.Value.ResolvedWorkDir, task.Id, newStatus, task.IsScheduled, logger);
+
+                task.Status        = newStatus;
+                task.Error         = request.Error;
+                task.CompletedAt   = DateTime.UtcNow;
+                task.UpdatedAt     = DateTime.UtcNow;
+                task.AgentReported = true;
+
+                if (request.ResultJson is not null)
+                    task.ResultJson = request.ResultJson;
+
+                task.ResultJson = TaskDirManager.UpdateResultJsonWorkDir(task.ResultJson, newWorkDir);
+
+                await db.SaveChangesAsync(ct);
+
+                logger.LogInformation("Dormant task {Id} closed with status {Status} (no dispatch).", id, newStatus);
+                return Results.Ok(task);
+            }
+
             if (newStatus != AgentTaskStatus.Pending)
                 return Results.BadRequest(
                     $"Task {id} is in dormant state '{task.Status}'. " +
-                    "It can only be transitioned to Pending (to dispatch it). " +
-                    "Use POST /tasks/{id}/result to close a task that was manually processed.");
+                    "Transition to Pending (to dispatch) or to a terminal status (to close without dispatching).");
 
             var workDir = TaskDirManager.FindTaskDir(dispatchConfig.Value.ResolvedWorkDir, id);
             if (workDir is not null)
