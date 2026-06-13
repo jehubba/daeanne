@@ -385,7 +385,7 @@ public class GraphMailWorker(
                 ["grant_type"]    = "refresh_token",
                 ["client_id"]     = clientId,
                 ["refresh_token"] = state.RefreshToken!,
-                ["scope"]         = "Mail.Read Mail.ReadWrite Mail.Send offline_access"
+                ["scope"]         = "Mail.Read Mail.ReadWrite Mail.Send Calendars.ReadWrite offline_access"
             }), ct);
 
         resp.EnsureSuccessStatusCode();
@@ -417,7 +417,10 @@ public class GraphMailWorker(
         BridgeHealth.GraphTokenError       = null;
         BridgeHealth.GraphTokenLastChecked = DateTime.UtcNow;
 
-        return root.GetProperty("access_token").GetString()!;
+        var accessToken = root.GetProperty("access_token").GetString()!;
+        var expiresIn   = root.TryGetProperty("expires_in", out var exp) ? exp.GetInt32() : 3600;
+        GraphTokenCache.Update(accessToken, expiresIn);
+        return accessToken;
     }
 
     private async Task MarkReadAsync(HttpClient graphHttp, string messageId, CancellationToken ct)
