@@ -8,11 +8,14 @@ namespace DaeanneFrontend.SwaApi;
 
 public class GetRolesFunction
 {
-    private readonly string _allowedEmail;
+    private readonly string[] _allowedEmails;
 
     public GetRolesFunction()
     {
-        _allowedEmail = Environment.GetEnvironmentVariable("ALLOWED_USER_EMAIL") ?? string.Empty;
+        var raw = Environment.GetEnvironmentVariable("ALLOWED_USER_EMAILS")
+            ?? Environment.GetEnvironmentVariable("ALLOWED_USER_EMAIL")
+            ?? string.Empty;
+        _allowedEmails = raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 
     [Function("get-roles")]
@@ -28,8 +31,8 @@ public class GetRolesFunction
             {
                 var clientPrincipal = JsonSerializer.Deserialize<RolesClientPrincipal>(body);
                 if (clientPrincipal is not null &&
-                    !string.IsNullOrEmpty(_allowedEmail) &&
-                    string.Equals(clientPrincipal.UserDetails, _allowedEmail, StringComparison.OrdinalIgnoreCase))
+                    _allowedEmails.Length > 0 &&
+                    _allowedEmails.Any(e => string.Equals(clientPrincipal.UserDetails, e, StringComparison.OrdinalIgnoreCase)))
                 {
                     roles.Add("admin");
                 }
