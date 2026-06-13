@@ -1,0 +1,14 @@
+{
+  "name": "daeanne-dispatcher-mcp",
+  "version": "1.0.0",
+  "description": "MCP server wrapping the Daeanne Dispatcher API",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "node-fetch": "^3.3.2"
+  }
+}

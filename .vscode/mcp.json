@@ -1,8 +1,22 @@
 {
   "servers": {
-    "agent365-calendartools": {
-      "type": "http",
-      "url": "https://agent365.svc.cloud.microsoft/agents/tenants/9188040d-6c67-4c5b-b112-36a304b66dad/servers/mcp_CalendarTools"
+    "daeanne-dispatcher": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${workspaceFolder}/mcp/dispatcher/index.js"],
+      "env": {
+        "DISPATCHER_URL": "http://127.0.0.1:47777"
+      }
+    },
+    "daeanne-filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "${env:USERPROFILE}/.daeanne"]
+    },
+    "daeanne-memory": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"]
     }
   }
 }
