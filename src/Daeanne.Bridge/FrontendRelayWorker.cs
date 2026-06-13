@@ -248,8 +248,8 @@ public class FrontendRelayWorker : BackgroundService
             var notifyType = result.Succeeded ? "task_complete" : "alert";
             var title = result.Succeeded ? "Task completed" : "Task failed";
             var body = result.Succeeded
-                ? (result.Response is { Length: > 0 } r ? r[..Math.Min(r.Length, 120)] : "Your task finished successfully.")
-                : (result.Error is { Length: > 0 } e ? e[..Math.Min(e.Length, 120)] : "A task did not complete.");
+                ? TruncateMessage(result.Response, "Your task finished successfully.")
+                : TruncateMessage(result.Error, "A task did not complete.");
 
             var payload = new
             {
@@ -265,7 +265,7 @@ public class FrontendRelayWorker : BackgroundService
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase
             });
 
-            var client = _http.CreateClient("dispatcher");
+            var client = _http.CreateClient("frontend");
             var request = new HttpRequestMessage(HttpMethod.Post, $"{frontendApiUrl.TrimEnd('/')}/notify")
             {
                 Content = new StringContent(json, Encoding.UTF8, "application/json")
@@ -284,4 +284,7 @@ public class FrontendRelayWorker : BackgroundService
             _logger.LogWarning(ex, "FrontendRelayWorker: failed to send push notification.");
         }
     }
+
+    private static string TruncateMessage(string? message, string defaultText, int maxLength = 120)
+        => message is { Length: > 0 } m ? m[..Math.Min(m.Length, maxLength)] : defaultText;
 }

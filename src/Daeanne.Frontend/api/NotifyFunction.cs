@@ -79,11 +79,17 @@ public class NotifyFunction
 
         var vapidPublicKey = Environment.GetEnvironmentVariable("VAPID_PUBLIC_KEY");
         var vapidPrivateKey = Environment.GetEnvironmentVariable("VAPID_PRIVATE_KEY");
-        var vapidSubject = Environment.GetEnvironmentVariable("VAPID_SUBJECT") ?? "mailto:daeanne@example.com";
+        var vapidSubject = Environment.GetEnvironmentVariable("VAPID_SUBJECT");
 
         if (string.IsNullOrWhiteSpace(vapidPublicKey) || string.IsNullOrWhiteSpace(vapidPrivateKey))
         {
             _logger.LogWarning("NotifyFunction: VAPID keys not configured — notification dropped.");
+            return new StatusCodeResult(503);
+        }
+
+        if (string.IsNullOrWhiteSpace(vapidSubject))
+        {
+            _logger.LogWarning("NotifyFunction: VAPID_SUBJECT not configured — notification dropped.");
             return new StatusCodeResult(503);
         }
 

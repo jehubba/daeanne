@@ -294,6 +294,10 @@ Returns 404 if `VAPID_PUBLIC_KEY` is not configured.
 - **Web Share**: `PushInteropService.ShareTaskAsync(title, text, url)` (share button in TaskDetailOverlay)
 - **iOS requirement**: Web Push requires iOS 16.4+ in standalone PWA mode
 
+---
+
+## Serialization Conventions
+
 - **Service Bus messages**: `camelCase`, case-insensitive deserialization.
 - **Dispatcher API**: `camelCase` (ASP.NET default). Enums serialized as strings.
 - **Bridge relay**: `camelCase`, case-insensitive. Anonymous objects mirror `TaskDto` field names.
