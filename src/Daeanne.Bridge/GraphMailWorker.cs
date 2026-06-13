@@ -259,7 +259,7 @@ public class GraphMailWorker(
                   "?$filter=isRead eq false" +
                   "&$orderby=receivedDateTime asc" +
                   "&$top=25" +
-                  "&$select=id,subject,from,body,receivedDateTime,internetMessageId,conversationId";
+                  "&$select=id,subject,from,toRecipients,ccRecipients,body,receivedDateTime,internetMessageId,conversationId";
 
         JsonElement messages;
         try
@@ -288,6 +288,16 @@ public class GraphMailWorker(
             var from = msg.TryGetProperty("from", out var fv)
                 ? fv.GetProperty("emailAddress").GetProperty("address").GetString() ?? ""
                 : "";
+
+            // Determine whether Daeanne is the primary recipient (To) or was CC'd.
+            var toAddrs = msg.TryGetProperty("toRecipients", out var trv)
+                ? trv.EnumerateArray()
+                    .Select(r => r.TryGetProperty("emailAddress", out var ea)
+                        ? ea.GetProperty("address").GetString() ?? "" : "")
+                    .ToList()
+                : [];
+            var addressedAs = toAddrs.Any(a => a.Equals(mailAddress, StringComparison.OrdinalIgnoreCase))
+                ? "To" : "CC";
             var bodyRaw = msg.TryGetProperty("body", out var bv) ? bv.GetProperty("content").GetString() ?? "" : "";
             var isHtml = msg.TryGetProperty("body", out var bv2) &&
                          bv2.GetProperty("contentType").GetString() == "html";
@@ -338,7 +348,7 @@ public class GraphMailWorker(
                 continue;
             }
 
-            var prompt = BuildEmailPrompt(bridgeMsg);
+            var prompt = BuildEmailPrompt(bridgeMsg, addressedAs);
             var taskBody = JsonSerializer.Serialize(new
             {
                 type = "Email",
@@ -460,11 +470,12 @@ public class GraphMailWorker(
         return false;
     }
 
-    private static string BuildEmailPrompt(BridgeEmailMessage msg) =>
+    private static string BuildEmailPrompt(BridgeEmailMessage msg, string addressedAs) =>
         $"""
         INBOUND EMAIL
         From: {msg.From}
         To: {msg.To}
+        Addressed-As: {addressedAs}
         Subject: {msg.Subject}
         Received: {msg.Timestamp:u}
 

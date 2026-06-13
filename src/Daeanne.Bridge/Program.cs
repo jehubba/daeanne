@@ -48,5 +48,6 @@ app.MapGet("/health", () =>
 
 app.MapFrontendRelayEndpoints();
 app.MapCalendarEndpoints();
+app.MapEmailEndpoints();
 
 app.Run();
