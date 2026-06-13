@@ -19,13 +19,12 @@ $ErrorActionPreference = "Stop"
 $repoRoot  = Split-Path -Parent $PSScriptRoot
 $bridgeProj = Join-Path $repoRoot "src\Daeanne.Bridge"
 
-# ── Read ClientId from user-secrets ─────────────────────────────────────────
-$secrets = dotnet user-secrets list --project $bridgeProj 2>&1
-$clientIdLine = $secrets | Select-String "Graph:ClientId"
-if (-not $clientIdLine) {
-    Write-Error "Graph:ClientId not found in user-secrets for Daeanne.Bridge."
+# ── Read ClientId from appsettings.json ─────────────────────────────────────
+$appSettings = Get-Content (Join-Path $bridgeProj "appsettings.json") -Raw | ConvertFrom-Json
+$clientId = $appSettings.Graph.ClientId
+if (-not $clientId) {
+    Write-Error "Graph.ClientId not found in $bridgeProj\appsettings.json"
 }
-$clientId = ($clientIdLine -split " = ", 2)[1].Trim()
 Write-Host "Using ClientId: $clientId"
 
 # ── Scope ────────────────────────────────────────────────────────────────────
