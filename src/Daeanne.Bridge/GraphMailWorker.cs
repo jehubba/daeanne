@@ -97,7 +97,7 @@ public class GraphMailWorker(
 
         await Task.WhenAll(
             RunInboundLoopAsync(clientId, tokenState, mailAddress, dispatcherUrl, inboundPollSeconds, blockedSenders, stoppingToken),
-            RunOutboundLoopAsync(clientId, tokenState, dispatcherUrl, outboundPollSeconds, stoppingToken));
+            RunOutboundLoopAsync(clientId, tokenState, mailAddress, dispatcherUrl, outboundPollSeconds, stoppingToken));
     }
 
     private async Task RunInboundLoopAsync(
@@ -117,12 +117,12 @@ public class GraphMailWorker(
     }
 
     private async Task RunOutboundLoopAsync(
-        string clientId, TokenState tokenState,
+        string clientId, TokenState tokenState, string mailAddress,
         string dispatcherUrl, int pollSeconds, CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
-            try   { await SendPendingEmailsAsync(clientId, tokenState, dispatcherUrl, ct); }
+            try   { await SendPendingEmailsAsync(clientId, tokenState, mailAddress, dispatcherUrl, ct); }
             catch (HttpRequestException ex) when (IsConnectionRefused(ex))
             { logger.LogWarning("GraphMailWorker: Dispatcher unreachable (outbound) — will retry in {S}s", pollSeconds); }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -139,7 +139,7 @@ public class GraphMailWorker(
     // ─── OUTBOUND: Dispatcher outbox → Graph sendMail ─────────────────────────
 
     private async Task SendPendingEmailsAsync(
-        string clientId, TokenState tokenState, string dispatcherUrl, CancellationToken ct)
+        string clientId, TokenState tokenState, string mailAddress, string dispatcherUrl, CancellationToken ct)
     {
         var dispatchHttp = http.CreateClient("dispatcher");
 
@@ -189,12 +189,13 @@ public class GraphMailWorker(
                         email.ReplyToGraphMessageId,
                         email,
                         formattedBody,
+                        mailAddress,
                         ct);
                 }
                 else
                 {
                     // New email thread
-                    sendResp = await SendMultipartEmailAsync(graphHttp, email, formattedBody, ct);
+                    sendResp = await SendMultipartEmailAsync(graphHttp, email, formattedBody, mailAddress, ct);
                 }
 
                 if (sendResp.IsSuccessStatusCode)
@@ -478,9 +479,11 @@ public class GraphMailWorker(
         HttpClient graphHttp,
         OutboxEmail email,
         EmailBodyFormatter.FormattedBody body,
+        string mailAddress,
         CancellationToken ct)
     {
         var mime = BuildMultipartAlternativeMime(
+            from: mailAddress,
             to: email.To,
             subject: email.Subject,
             plainText: body.PlainText,
@@ -503,6 +506,7 @@ public class GraphMailWorker(
         string replyToGraphMessageId,
         OutboxEmail email,
         EmailBodyFormatter.FormattedBody body,
+        string mailAddress,
         CancellationToken ct)
     {
         // Step 1 — create draft reply (Graph injects In-Reply-To + References)
@@ -518,11 +522,12 @@ public class GraphMailWorker(
         var draftId = createDoc.RootElement.GetProperty("id").GetString()
             ?? throw new InvalidOperationException("createReply returned no draft id.");
 
-        // Step 2 — patch the draft with our formatted body
+        // Step 2 — patch the draft with our formatted body and explicit from address
         var patchPayload = JsonSerializer.Serialize(new
         {
             subject = email.Subject,
-            body    = new { contentType = "html", content = body.Html }
+            body    = new { contentType = "html", content = body.Html },
+            from    = new { emailAddress = new { address = mailAddress } }
         });
         var patchResp = await graphHttp.PatchAsync(
             $"{GraphBase}/me/messages/{Uri.EscapeDataString(draftId)}",
@@ -547,6 +552,7 @@ public class GraphMailWorker(
         Convert.ToBase64String(Encoding.UTF8.GetBytes(mimeRaw));
 
     private static string BuildMultipartAlternativeMime(
+        string? from,
         string? to,
         string? subject,
         string plainText,
@@ -557,6 +563,8 @@ public class GraphMailWorker(
 
         sb.Append("MIME-Version: 1.0\r\n");
         sb.Append($"Content-Type: multipart/alternative; boundary=\"{boundary}\"\r\n");
+        if (!string.IsNullOrWhiteSpace(from))
+            sb.Append($"From: {SanitizeHeaderValue(from)}\r\n");
         if (!string.IsNullOrWhiteSpace(to))
             sb.Append($"To: {SanitizeHeaderValue(to)}\r\n");
         if (!string.IsNullOrWhiteSpace(subject))
