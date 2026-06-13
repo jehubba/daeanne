@@ -34,12 +34,11 @@ if (!string.IsNullOrEmpty(sbConnectionString))
     builder.Services.AddSingleton(new ServiceBusClient(sbConnectionString));
 }
 
-var storageConnection = Environment.GetEnvironmentVariable("AzureWebJobsStorage");
-if (!string.IsNullOrEmpty(storageConnection))
-{
-    builder.Services.AddSingleton(new BlobServiceClient(storageConnection));
-    builder.Services.AddSingleton<ResultStore>();
-}
+var storageConnection = Environment.GetEnvironmentVariable("AzureWebJobsStorage")
+    ?? Environment.GetEnvironmentVariable("FRONTEND_STORAGE_CONNECTION");
+builder.Services.AddSingleton(new BlobServiceClient(
+    string.IsNullOrEmpty(storageConnection) ? "UseDevelopmentStorage=true" : storageConnection));
+builder.Services.AddSingleton<ResultStore>();
 
 if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTION_STRING")))
 {
